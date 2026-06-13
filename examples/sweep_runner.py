@@ -9,15 +9,18 @@ import pandas as pd
 import torch
 
 from joff import ExperimentRunner
+from _reporting import print_kv, print_runner_result, print_section
 
 
 def main() -> None:
     """Run a tiny two-config MLP sweep and write runner summary artifacts."""
 
     args = _parse_args()
+    print_section("Sweep Runner")
     run_root = Path(args.run_root)
     data_path = _write_regression_csv(run_root / "example_data" / "sweep_runner.csv")
     max_epochs = 1 if args.smoke else 3
+    print_kv("Sweep Setup", {"data": data_path, "max_epochs": max_epochs, "run_root": run_root})
     configs = []
     for idx, hidden in enumerate(([4], [8])):
         configs.append(
@@ -35,13 +38,14 @@ def main() -> None:
                 "artifacts": {"root": run_root, "name": f"sweep_runner_exp_{idx}"},
             }
         )
-    ExperimentRunner.from_config(
+    result = ExperimentRunner.from_config(
         {
             "name": "sweep_runner",
             "artifacts": {"root": run_root},
             "configs": configs,
         }
     ).run()
+    print_runner_result(result)
 
 
 def _write_regression_csv(path: Path) -> Path:

@@ -43,8 +43,9 @@ pipeline = DataPipeline.from_config([
 ])
 
 data = DataModule.from_preset(
-    "cstr_fault_diagnosis",
-    task="fault_diagnosis",
+    "cstr_fd",
+    root="CSTR",
+    task="fd",
     pipeline=pipeline,
     batch_size=32,
 )
@@ -93,6 +94,24 @@ python examples/repeat_study.py --smoke
 | `wpt_mpc` | MPC | `datasets/raw/oa/WPT` |
 
 私有工业数据仍可在本地通过 adapter 使用，但需要用户自行提供本地 root，这些文件不会进入公开仓库。
+
+### 短名写法
+
+`DataModule.from_preset(...)` 支持常用数据集的 preset、task 和 root 短名：
+
+```python
+data = DataModule.from_preset("cstr_fd", root="CSTR", task="fd")
+te = DataModule.from_preset("te_cls", root="TE", task="cls")
+wpt = DataModule.from_preset("wpt", root="WPT", task="mpc")
+```
+
+`root="CSTR"` 默认解析为 `datasets/raw/oa/CSTR`。private 数据必须显式标记，例如 `root="*HY"` 或 `root="private:HY"`。
+
+## 默认配置
+
+项目没有单独的默认 YAML 文件。运行时默认值由 `src/joff/core/defaults.py` 中的 `DefaultRegistry` 注册；配置 schema 与校验在 `src/joff/core/config.py`；`src/joff/core/resolver.py` 负责把 package/model defaults 与用户 YAML、API 参数、方法覆盖和 CLI 覆盖合并，并记录 provenance。
+
+`configs/example.yaml` 只是可编辑示例配置，不是权威默认配置源。
 
 ## 项目结构
 

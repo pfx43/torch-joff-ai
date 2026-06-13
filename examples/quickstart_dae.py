@@ -5,11 +5,13 @@ from __future__ import annotations
 import torch
 
 from joff import DataModule, Trainer, build_model
+from _reporting import print_data_summary, print_history, print_metrics, print_model_summary, print_section
 
 
 def main() -> None:
     """Train a small DAE on deterministic synthetic process data."""
 
+    print_section("Quickstart DAE")
     steps = torch.linspace(0.0, 6.0, 72).unsqueeze(1)
     x = torch.cat(
         [
@@ -38,8 +40,12 @@ def main() -> None:
         }
     )
     trainer = Trainer(max_epochs=2, device="auto", seed=123)
-    trainer.fit(model, data)
-    trainer.evaluate(model, data)
+    print_data_summary(data)
+    print_model_summary(model)
+    result = trainer.fit(model, data)
+    metrics = trainer.evaluate(model, data)
+    print_history(result.history)
+    print_metrics(metrics)
 
 
 if __name__ == "__main__":

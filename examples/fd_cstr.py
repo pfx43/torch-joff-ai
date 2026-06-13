@@ -14,6 +14,15 @@ from joff.artifacts import ArtifactStore
 from joff.data.pipeline import Normalizer
 from joff.evaluation import reconstruction_scores
 from joff.plotting import FaultDetectionPlotter, TrainingPlotter
+from _reporting import (
+    print_artifacts,
+    print_data_summary,
+    print_history,
+    print_kv,
+    print_metrics,
+    print_model_summary,
+    print_section,
+)
 
 
 def main() -> None:
@@ -24,6 +33,7 @@ def main() -> None:
     parser.add_argument("--run-root", type=Path, default=Path("runs"))
     args = parser.parse_args()
 
+    print_section("CSTR Fault Detection")
     seed = 31
     seed_everything(seed)
     rows = 72 if args.smoke else 180
@@ -66,6 +76,9 @@ def main() -> None:
         seed=seed,
         checkpoint_dir=store.path / "checkpoints",
     )
+    print_kv("Resolved Config", {"seed": seed, "rows": rows, "max_epochs": max_epochs, "run_dir": store.path})
+    print_data_summary(data, title="Normal Training Data")
+    print_model_summary(model)
     training = trainer.fit(model, data)
     threshold_reconstruction = _reconstruct(model, threshold_x)
     test_reconstruction = _reconstruct(model, test_x)
@@ -91,6 +104,19 @@ def main() -> None:
     store.save_figure("plots/loss.png", loss_figure)
     score_figure = _score_figure(test_scores, labels, report.threshold)
     store.save_figure("plots/fault_scores.png", score_figure)
+    print_history(training.history)
+    print_metrics(report.metrics, title="Fault Detection Metrics")
+    print_kv(
+        "Score Summary",
+        {
+            **_score_summary(normal_scores, test_scores),
+            "threshold": report.threshold,
+            "normal_rows": len(normal_scores),
+            "test_rows": len(test_scores),
+            "fault_rows": int(labels.sum()),
+        },
+    )
+    print_artifacts(store.path)
 
 
 def _synthetic_cstr(rows: int, *, fault: bool, seed: int) -> np.ndarray:

@@ -60,6 +60,28 @@ def test_real_dataset_cards_parse_and_carry_access_metadata() -> None:
         assert summary["access"]["tag"] == expected_tag
 
 
+def test_real_dataset_short_root_and_task_aliases_load_default_oa_data() -> None:
+    _require_dataset_root(RAW_ROOT / "oa" / "CSTR")
+    data = DataModule.from_preset("cstr_fd", root="CSTR", task="fd", batch_size=8)
+    assert data.summaries["preset_summary"]["name"] == "cstr_fault_diagnosis"
+    assert data.summaries["task_summary"]["name"] == "fault_diagnosis"
+    assert data.summaries["source_summary"]["access"]["tag"] == "oa"
+    assert Path(data.summaries["source_summary"]["root"]).parts[-5:] == (
+        "datasets",
+        "raw",
+        "oa",
+        "CSTR",
+        "fd",
+    )
+
+
+def test_private_root_alias_requires_explicit_marker() -> None:
+    _require_dataset_root(RAW_ROOT / "private" / "HY")
+    data = DataModule.from_preset("hy_fd", root="*HY", task="fd", batch_size=8)
+    assert data.summaries["preset_summary"]["name"] == "hy_fault_diagnosis"
+    assert data.summaries["source_summary"]["access"]["tag"] == "private"
+
+
 @pytest.mark.parametrize(("preset", "root", "task"), CASES)
 def test_real_dataset_presets_smoke_load_and_save_summaries(
     preset: str,

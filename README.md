@@ -43,8 +43,9 @@ pipeline = DataPipeline.from_config([
 ])
 
 data = DataModule.from_preset(
-    "cstr_fault_diagnosis",
-    task="fault_diagnosis",
+    "cstr_fd",
+    root="CSTR",
+    task="fd",
     pipeline=pipeline,
     batch_size=32,
 )
@@ -93,6 +94,24 @@ The included OA presets cover:
 | `wpt_mpc` | MPC | `datasets/raw/oa/WPT` |
 
 Private industrial datasets can still be used locally through adapters when the user supplies a local root, but those files are outside the public repository.
+
+### Short Names
+
+`DataModule.from_preset(...)` accepts short preset, task, and root aliases for common datasets:
+
+```python
+data = DataModule.from_preset("cstr_fd", root="CSTR", task="fd")
+te = DataModule.from_preset("te_cls", root="TE", task="cls")
+wpt = DataModule.from_preset("wpt", root="WPT", task="mpc")
+```
+
+`root="CSTR"` resolves to `datasets/raw/oa/CSTR` by default. Private roots require an explicit marker, for example `root="*HY"` or `root="private:HY"`.
+
+## Configuration Defaults
+
+There is no separate default YAML file. Runtime defaults are registered in `src/joff/core/defaults.py` through `DefaultRegistry`. The schema and validation live in `src/joff/core/config.py`, and `src/joff/core/resolver.py` merges defaults with user YAML/API/CLI overrides while recording provenance.
+
+`configs/example.yaml` is only an editable example config, not the authoritative default source.
 
 ## Project Layout
 

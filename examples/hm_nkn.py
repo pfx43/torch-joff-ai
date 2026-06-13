@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from joff import Experiment
+from _reporting import print_experiment_result, print_kv, print_section
 
 
 def main() -> None:
@@ -19,14 +20,16 @@ def main() -> None:
     parser.add_argument("--run-root", type=Path, default=Path("runs"))
     args = parser.parse_args()
 
+    print_section("HM-Style NKN")
     rows = 56 if args.smoke else 160
     max_epochs = 1 if args.smoke else 5
     data_dir = args.run_root / "_example_data"
     data_dir.mkdir(parents=True, exist_ok=True)
     csv_path = data_dir / ("hm_nkn_smoke.csv" if args.smoke else "hm_nkn.csv")
     _synthetic_hm_frame(rows).to_csv(csv_path, index=False)
+    print_kv("Input Data", {"rows": rows, "csv": csv_path})
 
-    Experiment.from_config(
+    result = Experiment.from_config(
         {
             "seed": 19,
             "device": "cpu",
@@ -73,6 +76,7 @@ def main() -> None:
             },
         }
     ).run()
+    print_experiment_result(result)
 
 
 def _synthetic_hm_frame(rows: int) -> pd.DataFrame:

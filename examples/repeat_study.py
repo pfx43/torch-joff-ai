@@ -9,15 +9,18 @@ import pandas as pd
 import torch
 
 from joff.experiments import Study
+from _reporting import print_kv, print_section, print_study_result
 
 
 def main() -> None:
     """Run independent repeats for one small regression trial."""
 
     args = _parse_args()
+    print_section("Repeat Study")
     run_root = Path(args.run_root)
     data_path = _write_regression_csv(run_root / "example_data" / "repeat_study.csv")
-    Study.from_config(
+    print_kv("Study Setup", {"data": data_path, "run_root": run_root, "smoke": args.smoke})
+    result = Study.from_config(
         {
             "name": "repeat_study",
             "artifacts": {"root": run_root},
@@ -37,6 +40,7 @@ def main() -> None:
             "ranking": {"metric": "rmse", "mode": "min"},
         }
     ).run()
+    print_study_result(result)
 
 
 def _write_regression_csv(path: Path) -> Path:

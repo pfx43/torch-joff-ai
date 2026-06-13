@@ -315,8 +315,10 @@ class DataModule:
         """Create a data module from a registered preset or ``dataset_card.yaml`` path."""
 
         adapter = DATASET_REGISTRY.resolve(preset)
-        task_schema = adapter.default_task(task)
-        canonical = adapter.read(root=root, task=task_schema.name)
+        task_name = _normalize_task_alias(task)
+        task_schema = adapter.default_task(task_name)
+        resolved_root = _resolve_dataset_root_alias(root)
+        canonical = adapter.read(root=resolved_root, task=task_schema.name)
         schema = canonical.schema if canonical.schema.columns else adapter.schema()
 
         pipeline_config = _merge_pipeline_configs(
@@ -1333,6 +1335,104 @@ def _normalize_pipeline_config(
     pipeline: dict[str, Any] | list[Any] | str | Path | DataPipeline | None,
 ) -> dict[str, Any]:
     return DataPipeline.from_config(pipeline).to_config()
+
+
+_TASK_ALIASES = {
+    "cls": "classification",
+    "class": "classification",
+    "classification": "classification",
+    "fd": "fault_diagnosis",
+    "fault": "fault_diagnosis",
+    "fault_detection": "fault_diagnosis",
+    "fault_diagnosis": "fault_diagnosis",
+    "fe": "reconstruction",
+    "fault_estimation": "reconstruction",
+    "impute": "imputation",
+    "imputation": "imputation",
+    "mpc": "mpc",
+    "pred": "prediction",
+    "prd": "prediction",
+    "prediction": "prediction",
+    "recon": "reconstruction",
+    "reconstruction": "reconstruction",
+}
+
+
+_DATASET_ROOT_ALIASES = {
+    "cstr": "CSTR",
+    "te": "TE",
+    "tts": "TTS",
+    "ne": "NE",
+    "wpt": "WPT",
+    "hy": "HY",
+    "hy_prd": "HY_PRD",
+    "hy-prd": "HY_PRD",
+    "multiphase": "Multiphase_Flow_Facility",
+    "multiphase_flow_facility": "Multiphase_Flow_Facility",
+    "multiphase-flow-facility": "Multiphase_Flow_Facility",
+    "mff": "Multiphase_Flow_Facility",
+}
+
+
+def _normalize_task_alias(task: str | None) -> str | None:
+    if task is None:
+        return None
+    normalized = str(task).strip().lower().replace("-", "_").replace("/", "_")
+    return _TASK_ALIASES.get(normalized, normalized)
+
+
+def _resolve_dataset_root_alias(root: str | Path | None) -> Path | None:
+    if root is None:
+        return None
+    raw = str(root).strip()
+    if not raw:
+        return Path(raw)
+    access = "oa"
+    lowered = raw.lower()
+    for prefix, prefix_access in (
+        ("private:", "private"),
+        ("priv:", "private"),
+        ("oa:", "oa"),
+        ("open:", "oa"),
+        ("public:", "oa"),
+    ):
+        if lowered.startswith(prefix):
+            access = prefix_access
+            raw = raw[len(prefix) :].strip()
+            lowered = raw.lower()
+            break
+    if raw.startswith("*"):
+        access = "private"
+        raw = raw[1:].strip()
+    elif raw.endswith("*"):
+        access = "private"
+        raw = raw[:-1].strip()
+
+    direct = Path(raw).expanduser()
+    if direct.exists() or direct.is_absolute() or raw.startswith((".", "~")):
+        return direct
+
+    normalized_parts = [part for part in raw.replace("\\", "/").split("/") if part]
+    if not normalized_parts:
+        return direct
+    first = normalized_parts[0].strip().lower()
+    mapped_first = _DATASET_ROOT_ALIASES.get(first)
+    if mapped_first is None:
+        return direct
+
+    relative_root = Path(mapped_first, *normalized_parts[1:])
+    candidates = [
+        Path.cwd() / "datasets" / "raw" / access / relative_root,
+        _project_root() / "datasets" / "raw" / access / relative_root,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[-1]
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
 
 
 def _merge_pipeline_configs(

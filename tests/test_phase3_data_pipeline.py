@@ -921,6 +921,13 @@ def test_dataset_preset_errors_and_legacy_special_mapping_are_helpful() -> None:
     assert data.summaries["source_summary"]["source_type"] == "builtin_synthetic"
 
 
+def test_dataset_preset_short_aliases_resolve_for_synthetic_fallback() -> None:
+    data = DataModule.from_preset("cstr_fd", task="fd", batch_size=8)
+    assert data.summaries["preset_summary"]["name"] == "cstr_fault_diagnosis"
+    assert data.summaries["task_summary"]["name"] == "fault_diagnosis"
+    assert data.summaries["source_summary"]["source_type"] == "builtin_synthetic"
+
+
 def test_legacy_special_presets_are_registered_and_smoke_load() -> None:
     expected_presets = {
         "te_fault_diagnosis",
