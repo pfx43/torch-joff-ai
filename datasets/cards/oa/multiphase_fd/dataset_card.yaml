@@ -1,0 +1,25 @@
+name: multiphase_fd
+version: real-v1
+description: Multiphase Flow Facility fault-diagnosis dataset.
+access: {tag: oa, disclosure: open_access, license: to_verify}
+adapter: MultiphaseAdapter
+files:
+  root: ../../../raw/oa/Multiphase_Flow_Facility
+  train: train/Training.mat
+  test: test/FaultyCase*.mat
+schema:
+  sample_rate: 1.0
+  feature_count: 24
+  columns:
+    - {name: time, role: time}
+    - {name: x00, role: input}
+    - {name: fault_id, role: fault_id}
+tasks:
+  fault_diagnosis:
+    inputs: [input]
+    targets: [fault_id]
+    label_column: fault_id
+    normal_label: 0
+pipeline:
+  split: {type: official}
+  normalization: {method: standard}

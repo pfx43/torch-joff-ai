@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Experiment outputs
+runs/
+outputs/
+artifacts/
+checkpoints/
+wandb/
+mlruns/
+*.pt
+*.pth
+*.ckpt
+
+# Local/private dataset material
+datasets/raw/private/
+datasets/cards/private/
+datasets/manifest.yaml
+examples/private_*.py
+docs/rebuild/
+
+# Optional local scratch data
+data/private/
+*.local.yaml
+*.local.json

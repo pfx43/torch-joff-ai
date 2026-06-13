@@ -1,0 +1,26 @@
+name: wpt_mpc
+version: real-v1
+description: WPT PRBS data for MPC/windowed sequence smoke experiments.
+access: {tag: oa, disclosure: open_access, license: to_verify}
+adapter: WPTAdapter
+files:
+  root: ../../../raw/oa/WPT
+  control: PRBS_1024_u.mat
+  output: PRBS_1024_y.mat
+  fallback_excel: data1024.xlsx
+schema:
+  sample_rate: 1.0
+  columns:
+    - {name: episode, role: episode}
+    - {name: state1, role: state}
+    - {name: control1, role: control}
+    - {name: output1, role: output}
+    - {name: reference1, role: reference}
+tasks:
+  mpc:
+    inputs: [state, output, control, reference]
+    targets: [output]
+pipeline:
+  split: {type: official}
+  normalization: {method: standard}
+  mpc_window: {past_horizon: 2, prediction_horizon: 2, control_horizon: 2, return_mode: tuple}
