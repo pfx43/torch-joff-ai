@@ -1,0 +1,27 @@
+name: te_fault_diagnosis
+version: real-v1
+description: Tennessee Eastman fault-diagnosis dataset from the legacy Dataset/TE/fd folder.
+access: {tag: oa, disclosure: open_access, license: to_verify}
+adapter: TEAdapter
+files:
+  root: ../../../raw/oa/TE/fd
+  train: train/Mode1_Normal.mat
+  test:
+    - test/Fault*.npy
+    - test/Mode1_Faulty.mat
+schema:
+  sample_rate: 1.0
+  feature_count: 33
+  columns:
+    - {name: time, role: time}
+    - {name: x00, role: input}
+    - {name: fault_id, role: fault_id}
+tasks:
+  fault_diagnosis:
+    inputs: [input]
+    targets: [fault_id]
+    label_column: fault_id
+    normal_label: 0
+pipeline:
+  split: {type: official}
+  normalization: {method: standard}

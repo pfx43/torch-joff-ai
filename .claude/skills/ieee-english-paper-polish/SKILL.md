@@ -1,0 +1,71 @@
+---
+name: ieee-english-paper-polish
+description: Revise, extend, structure, and quality-check English academic manuscripts in IEEE Transactions style, especially IEEE TFS papers involving nonlinear systems, T-S fuzzy models, Koopman operators, observers, fault diagnosis, neural networks, stability proofs, and LaTeX. Use when the user asks for manuscript rewriting, notation unification, theorem/proof strengthening, IEEE chapter organization, reference-aware polishing, LaTeX generation, PDF compilation, or incorporation of durable writing rules from later feedback.
+---
+
+# IEEE English Paper Polish
+
+Use this skill as a manuscript-revision workflow, not as surface-level copyediting. Preserve the author's technical claims and evidence, make the mathematical narrative auditable, and keep all notation, section boundaries, references, and compiled artifacts consistent.
+
+## Workflow
+
+1. Read the manuscript source, bibliography, project instructions, and any named reference papers or extracted literature summaries before editing. At the project root, look for `MANUSCRIPT_CONTEXT.md`; read it in full when present. If it is absent and the paper's scope is sufficiently established, create it before substantive revision with the paper idea, modeling and data boundaries, section outline, notation ledger, confirmed decisions, and unresolved issues. Treat explicit user corrections as higher priority than defaults in this skill.
+2. Build or update the project notation ledger before rewriting. Record each symbol's meaning, font, dimensions, and first definition. Search the entire source for collisions before introducing a new symbol.
+3. Separate background from contributions. Put generic system definitions, standard T-S/Koopman facts, assumptions, and the abstract problem statement in preliminaries. Put causal lifting, attention membership generation, learned rule construction, and other paper-specific ideas in the method section.
+4. Rewrite in formal English with connected paragraphs. Use the IEEE Transactions structure appropriate to the paper, normally: Introduction; Preliminaries and Problem Formulation; Proposed Method; Observer/Controller Design and Analysis; Diagnosis or Application; Experiments; Conclusion.
+5. Close every important mathematical argument: motivation sentence, numbered equation, immediate symbol/dimension explanation, and consequence. State assumptions before theorems and prove the exact claim under those assumptions.
+6. Compile with `latexmk -pdf -interaction=nonstopmode -file-line-error -halt-on-error`, inspect undefined references and overfull boxes, then render representative/all PDF pages for visual checking.
+7. When the user supplies a new durable rule, update `references/living-user-rules.md` before finishing. Record only rules that transfer across manuscripts; do not record one-paper symbol choices, equation numbers, temporary hypotheses, or task-specific technical decisions. Put those decisions in the active project's `MANUSCRIPT_CONTEXT.md` instead, and update only the affected entries after an explicit decision changes. Keep each retained rule concise, generalized, and actionable. Treat `D:\_[PPPaper]\ieee-english-paper-polish` as the canonical copy and synchronize the installed copy under `C:\Users\Fuzz4\.codex\skills\ieee-english-paper-polish` when it exists.
+
+## Markdown artifact rules
+
+Apply these rules to every paper-related Markdown file created or edited under this skill, including project contexts, outlines, notation ledgers, literature notes, experiment plans, review notes, and response drafts.
+
+- Use `$...$` for inline mathematics and standalone `$$...$$` blocks for display mathematics. Do not use `\(...\)` or `\[...\]` in Markdown.
+- Leave a blank line before every opening display-math delimiter and after every closing display-math delimiter so the formula remains a separate block.
+- Leave a blank line before every ordered-list item, including consecutive numbered items.
+- Use a Unicode en dash (`–`) in Markdown prose instead of the LaTeX-style double hyphen (`--`). Preserve Markdown table separator rows such as `|---|---|`.
+- Before delivery, audit every affected Markdown file for legacy math delimiters, exposed renderer placeholders such as `@@TOLARIA_MATH...`, unmatched math delimiters, prose double hyphens, missing required blank lines, control characters, and Unicode replacement characters.
+
+## Notation rules
+
+- Use a consistent, visually distinct fault font throughout a manuscript; reserve the same base letter for physical faults, generalized fault vectors, estimates, and variations.
+- Use calligraphic capitals for nonlinear mappings and blackboard-bold notation for sets and spaces. Never use one symbol as both a mapping and its domain.
+- Reserve symbols by semantic family when the paper contains neural networks, physical mappings, Koopman operators, attention keys, residuals, and stability constants. Record paper-specific choices in `MANUSCRIPT_CONTEXT.md` rather than hard-coding them in this skill.
+- Avoid reusing one symbol for different objects even when their fonts or subscripts differ only slightly. Audit the whole manuscript for collisions before accepting new notation.
+- Keep Koopman operator/matrix notation disjoint from attention key/prototype notation. Distinguish infinite-dimensional operators from finite-dimensional approximations by font or symbol family.
+- Give related multi-line relations one equation number. Prefer `equation` with `aligned`/`split` over an `align` environment that silently creates multiple numbers. Keep labels outside the inner alignment when possible.
+
+## Theory and learning rules
+
+- For a controlled Koopman preliminaries section, define the nonlinear transition mapping, lifting mapping, operator action, commutative relation, and finite-dimensional approximation. Do not introduce the paper's causal history lift or attention architecture there.
+- For T-S models, state nonnegativity and partition-of-unity membership conditions explicitly. Explain whether memberships are fixed, measured, data-driven, or learned.
+- For stability, distinguish local-rule stability from stability of arbitrary time-varying convex interpolations. A common induced-norm contraction is a valid route; state the norm, weighting, contraction constants, and all bounded inputs used in the proof.
+- If a neural parameterization certifies a spectral-norm bound, prove differentiability, show the strict bound, and derive the differential/backpropagation gradient. Do not claim exact spectral normalization when the proof uses the Frobenius upper bound.
+- For discrete sliding-mode analysis, give both the lower disturbance-dominating gain bound and the upper no-repeated-crossing bound. Prove finite-step reachability and positive invariance of the boundary layer.
+- For simultaneous actuator/sensor diagnosis, keep the physical channels distinct until their lifted one-step signatures are combined. State single-step and multi-step rank/conditioning assumptions and reconstruction-error bounds.
+- Use the term *dynamic threshold* precisely. A Ding-style dynamic threshold is an online threshold generator derived from the fault-free residual dynamics; it propagates and separates the effects of admissible initial error, known/measured inputs and model uncertainty, and disturbances/noise. Do not substitute a rolling empirical quantile, moving covariance, or periodically refitted constant threshold and call it the same method. For multi-step residuals, preserve cross-time propagation in the stacked bound. If a confidence level is claimed, identify which noise term is probabilistic and keep deterministic input/uncertainty bounds separate.
+- Do not invent experiments, numerical results, hardware, datasets, or citations. If evidence is missing, retain a clearly marked protocol or placeholder.
+
+## IEEE/TFS writing patterns
+
+- Drive the Introduction by technical tension: nonlinear operating regimes and uncertainty -> limits of linear/model-free diagnosis -> value of T-S/IT2 or structured fuzzy representations -> specific unresolved issue -> precise contributions.
+- Write contributions as three to five concrete claims, each tied to a construction or theorem. Do not place a paper-specific innovation in the preliminaries section.
+- Use the recurring TFS proof chain: model/observer definition -> augmented error dynamics -> Lyapunov or induced-norm condition -> theorem/lemma -> residual, threshold, isolation, or reconstruction logic.
+- For experiments, specify scenario, data split, fault types (including simultaneous actuator and sensor faults when claimed), baselines, metrics, and reproducibility information before discussing results. Never turn a planned experiment into a reported result.
+- Prefer paragraphs over code-like notation or unexplained abbreviations. Define abbreviations at first use and keep terminology stable.
+
+## Reference use
+
+Read `references/tfs-reference-patterns.md` when the task concerns IEEE TFS fault diagnosis, T-S/IT2 fuzzy observer design, residual thresholds, event-triggered diagnosis, knowledge-distilled fuzzy diagnosis, or reference-aware chapter organization. Use the reference library to learn structure and proof patterns, not to copy text or fabricate bibliographic entries.
+
+Read `references/living-user-rules.md` at the start of each manuscript task. Update it only when the user makes a durable, cross-manuscript notation, organization, proof, formatting, or evidence rule explicit; keep manuscript-specific conclusions in the current task artifacts instead.
+
+Read the active project's `MANUSCRIPT_CONTEXT.md` before modifying its manuscript, bibliography, equations, proofs, or section organization. Update that file when—and only when—an explicit project-level decision changes the paper's scope, model, training data, section plan, notation, proof route, residual, or threshold design.
+
+## Delivery checklist
+
+- Return links to the modified `.tex`, compiled `.pdf`, and any bibliography file when requested.
+- Report the substantive notation/structure/theory changes briefly, without dumping the whole diff.
+- Confirm that `MANUSCRIPT_CONTEXT.md` remains consistent with the delivered manuscript whenever project-level decisions were changed.
+- Before delivery, search for forbidden collisions (`\\mathfrak f` vs. `f`, mapping letters, reused `H`, reused `K`, duplicate labels), compile twice if needed, and visually inspect the rendered PDF.

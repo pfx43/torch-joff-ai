@@ -1,0 +1,21 @@
+name: tts_sui_fault_estimation
+version: real-v1
+description: Three-tank-system SUI fault estimation/reconstruction dataset.
+access: {tag: oa, disclosure: open_access, license: to_verify}
+adapter: TTSAdapter
+files:
+  root: ../../../raw/oa/TTS/sui_fe
+  train: train/Normal.npy
+  test: test/Fault*.npy
+schema:
+  sample_rate: 1.0
+  feature_count: 5
+  columns:
+    - {name: time, role: time}
+    - {name: x00, role: input}
+tasks:
+  reconstruction:
+    inputs: [input]
+pipeline:
+  split: {type: official}
+  normalization: {method: standard}

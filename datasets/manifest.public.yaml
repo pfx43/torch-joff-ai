@@ -1,0 +1,40 @@
+version: 1
+target_root: datasets/raw/oa
+checksum_policy: sha256-on-demand
+copy_policy:
+  exclude_dirs: [__pycache__, slprj, trained_model, .pytest_cache, .ruff_cache]
+  exclude_files: ["*.pyc", "*.pt", "*.docx", "*.l"]
+datasets:
+  CSTR:
+    access: {tag: oa, disclosure: open_access, license: to_verify}
+    target: datasets/raw/oa/CSTR
+    cards:
+      - datasets/cards/oa/cstr_fault_diagnosis/dataset_card.yaml
+      - datasets/cards/oa/cstr_closed_loop_fd/dataset_card.yaml
+  TE:
+    access: {tag: oa, disclosure: open_access, license: to_verify}
+    target: datasets/raw/oa/TE
+    cards:
+      - datasets/cards/oa/te_fault_diagnosis/dataset_card.yaml
+      - datasets/cards/oa/te_classification/dataset_card.yaml
+  TTS:
+    access: {tag: oa, disclosure: open_access, license: to_verify}
+    target: datasets/raw/oa/TTS
+    cards:
+      - datasets/cards/oa/tts_fault_diagnosis/dataset_card.yaml
+      - datasets/cards/oa/tts_sui_fault_estimation/dataset_card.yaml
+  NE:
+    access: {tag: oa, disclosure: open_access, license: to_verify}
+    target: datasets/raw/oa/NE
+    cards:
+      - datasets/cards/oa/ne_fault_estimation/dataset_card.yaml
+  Multiphase_Flow_Facility:
+    access: {tag: oa, disclosure: open_access, license: to_verify}
+    target: datasets/raw/oa/Multiphase_Flow_Facility
+    cards:
+      - datasets/cards/oa/multiphase_fd/dataset_card.yaml
+  WPT:
+    access: {tag: oa, disclosure: open_access, license: to_verify}
+    target: datasets/raw/oa/WPT
+    cards:
+      - datasets/cards/oa/wpt_mpc/dataset_card.yaml

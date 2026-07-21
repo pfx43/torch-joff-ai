@@ -1,0 +1,25 @@
+name: te_classification
+version: real-v1
+description: Tennessee Eastman classification dataset from DAT train/test files.
+access: {tag: oa, disclosure: open_access, license: to_verify}
+adapter: TEAdapter
+files:
+  root: ../../../raw/oa/TE/cls
+  train: train/d*.dat
+  test: test/d*_te.dat
+schema:
+  sample_rate: 1.0
+  feature_count: 52
+  columns:
+    - {name: time, role: time}
+    - {name: x00, role: input}
+    - {name: label, role: label}
+tasks:
+  classification:
+    inputs: [input]
+    targets: [label]
+    label_column: label
+    normal_label: 0
+pipeline:
+  split: {type: official}
+  normalization: {method: standard}

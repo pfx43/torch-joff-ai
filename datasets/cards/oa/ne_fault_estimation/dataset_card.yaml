@@ -1,0 +1,21 @@
+name: ne_fault_estimation
+version: real-v1
+description: NE SUI fault estimation/reconstruction dataset.
+access: {tag: oa, disclosure: open_access, license: to_verify}
+adapter: NEAdapter
+files:
+  root: ../../../raw/oa/NE/sui_fe
+  train: train/Normal.npy
+  test: test/Fault*.npy
+schema:
+  sample_rate: 1.0
+  feature_count: 5
+  columns:
+    - {name: time, role: time}
+    - {name: x00, role: input}
+tasks:
+  reconstruction:
+    inputs: [input]
+pipeline:
+  split: {type: official}
+  normalization: {method: standard}
