@@ -46,3 +46,32 @@ docs/rebuild/
 data/private/
 *.local.yaml
 *.local.json
+
+# LaTeX intermediates, scoped to paper/ (built in place by latexmk)
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+paper/*.toc
+paper/*.out
+paper/*.log
+paper/build_output.txt
+
+# LaTeX intermediates, scoped to docs/ (编译PDF.ps1 builds in %TEMP%, this guards manual runs)
+docs/*.aux
+docs/*.bbl
+docs/*.blg
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz
+docs/*.synctex(busy)
+docs/*.toc
+docs/*.out
+docs/*.xdv
+docs/*.lof
+docs/*.lot
+docs/*.nav
+docs/*.snm
+docs/*.log

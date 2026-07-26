@@ -1,0 +1,1228 @@
+% !TeX program = xelatex
+% 编译方式：xelatex（需 ctex 宏包），或上传 Overleaf 选择 XeLaTeX 编译器
+\documentclass[11pt,a4paper]{ctexart}
+
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{booktabs,longtable,array}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\allowdisplaybreaks
+\setlist{nosep,leftmargin=2em}
+
+% 排版辅助：可换行的左对齐定宽列（避免符号表中长公式撑破页面）
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\setlength{\emergencystretch}{3em}
+
+% 定理环境（中文）
+\newtheorem{theorem}{定理}
+\newtheorem{proposition}{命题}
+\newtheorem{lemma}{引理}
+\newtheorem{corollary}{推论}
+\newtheorem{assumption}{假设}
+\newtheorem{definition}{定义}
+\theoremstyle{remark}
+\newtheorem{remark}{注}
+
+% 公式标注：【维度 | 使用条件 | 在线可算 | 仅正常数据 | 性质】
+\newcommand{\anno}[1]{\par\noindent{\small\kaishu 【#1】}\par\smallskip}
+
+\newcommand{\col}{\operatorname{col}}
+\newcommand{\rank}{\operatorname{rank}}
+\newcommand{\Range}{\operatorname{Range}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\blkdiag}{\operatorname{blkdiag}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Zn}{\mathbb{Z}^{n}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\ZT}{\mathcal{Z}_{\Theta}}
+\newcommand{\Enc}{\mathcal{E}_{\vartheta}}
+\newcommand{\Prem}{\mathcal{P}_{\eta}}
+
+\title{\textbf{受保护 Attention--Koopman--T--S 模糊故障检测与结构化隔离\\完整方法设计}}
+\author{（对《后续研究方向与 AI 设计任务书》的完整回复）}
+\date{2026 年 7 月 26 日}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+本文档按任务书第二十节规定的 24 节结构，给出面向闭环非线性系统、仅正常数据条件下“受保护 Attention--Koopman--T--S 模糊未知故障检测与结构化隔离”方法的完整设计，覆盖任务书第十九节全部 14 项设计任务。输入材料为：老师 10 页英文理论稿（含 2 定理、4 命题、1 引理、2 算法、23 条参考文献）、任务书全文、仓库现状（《技术架构与代码地图》《当前工作记录》）。文中数学结论来自对理论稿逐条独立重推导（发现并修正若干处需要澄清或修补的问题，见第 16 节汇总）；文献边界结论来自 2026 年 7 月的在线检索；代码结论来自对 \texttt{src/joff} 的逐文件审计。
+
+\textbf{公式标注约定}：关键公式后附一行紧凑标注【维度 $\mid$ 使用条件 $\mid$ 在线可算：是/否 $\mid$ 仅正常数据：是/否 $\mid$ 性质】。“性质”取值：\textbf{严格}（所列假设下的精确等式或已证定理）、\textbf{充分}（充分而不必要的条件）、\textbf{经验}（由正常数据估计、无有限样本保证时明确说明）、\textbf{启发}（合理但暂无理论支撑的设计选择）。
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+%======================================================================
+\section{研究问题重新表述}
+%======================================================================
+
+\subsection{一句话表述}
+
+在闭环非线性系统上，仅用正常输入—输出—工况数据训练一个“正常系统应如何演化”的 Attention--Koopman--T--S 模型；上线后把\textbf{读取实际系统的估计支路}与\textbf{生成正常参照的受保护支路}明确分离，使故障发生后的异常测量既能立刻进入残差，又永远无法修正长期正常参照；再用完整模糊 Koopman Jacobian 推出的有限时间误差界生成动态阈值的确定性部分、用独立正常块校准随机剩余；告警后仅在可辨识范围内给出结构化隔离结论，信息不足时输出拒识。
+
+\subsection{核心矛盾的精确形式}
+
+在线监测器普遍存在如下反馈环：
+\begin{equation*}
+y_k\ \to\ d_k^-\ \to\ z_k^{E}\ \to\ \rho_k\ \to\ \omega_i(\rho_k)\ \to\ \ZT\ \to\ \text{参考轨迹}\ \to\ \text{残差}.
+\end{equation*}
+故障测量沿这条链不仅改变残差的“分子”（实际轨迹），还改变“分母”（正常参考、Attention 上下文、模糊规则权重），于是可能发生\textbf{异常吸收}：
+\begin{equation*}
+\text{故障使系统偏移}\ \Rightarrow\ \text{参考被拉向故障系统}\ \Rightarrow\ \text{残差重新变小}\ \Rightarrow\ \text{持续/缓变故障漏检}.
+\end{equation*}
+要解决的核心矛盾即任务书的框定式：
+\begin{equation*}
+\boxed{\ \text{正常参考需要校正以防自由预测漂移}\quad\text{vs.}\quad\text{正常参考不能被异常测量污染}.\ }
+\end{equation*}
+两侧都不能取极端：永远用测量校正 $\Rightarrow$ 吸收异常；永远不校正 $\Rightarrow$ 自由预测误差无界。本设计的回答是在\textbf{时间上分辨}这两个需求：校正只允许使用“延迟确认为正常”的历史锚点（解决漂移）；锚点确认之后的测量一律不进入长期参考（解决污染）；并用有限时间误差界回答“从锚点自由递推多久仍可信”（量化两者的交界）。
+
+\subsection{四个必须同时回答的子问题}
+
+\begin{center}
+\begin{tabular}{p{0.42\textwidth}p{0.28\textwidth}p{0.22\textwidth}}
+\toprule
+子问题 & 对应模块 & 对应理论 \\
+\midrule
+Q1 如何把“读实际系统”与“生成正常参照”分开 & 双支路 + 延迟确认锚点状态机 & 命题 1（污染阻断） \\
+Q2 自由递推的正常参考多久内可信 & 完整模糊 Jacobian + 误差递推 & 命题 2、定理 1、定理 2 \\
+Q3 不知故障方向时如何检测且控制误报 & 全维联合残差 + 条件白化 + 多尺度 + 动态阈值 & 命题 3、引理 1、推论 1 \\
+Q4 没有故障模型时隔离最多能做到什么 & 传感器屏蔽 + 输入响应子空间 + 拒识 & 命题 4、秩/裕度条件 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{问题自洽性检查（任务一）}
+
+逐项检查后的结论：\textbf{研究问题自洽，但有四处必须在论文中显式声明的边界}。
+
+\begin{enumerate}
+\item \textbf{闭环下使用记录指令 $u_k$ 合理}。控制器把异常测量反馈进 $u_k$，但数据支路与受保护支路条件于\textbf{同一个已实现的} $u_k$ 序列，比较的是“相同指令、相同工况下，实际系统与正常系统的差”，控制器映射从条件差分方程中消去，无需已知控制律。代价（必须声明）：故障经控制器反馈引起的 $u_k$ 变化本身不算异常——闭环补偿会真实地削弱可检测性，这是信息边界而非方法缺陷。若有独立可信的 $u^{\mathrm{act}}_k$ 测量，可增设执行器直接残差，但不作为方法前提。
+\item \textbf{“仅正常数据”与结构化隔离不矛盾，但决定了隔离上限}。隔离不输出物理故障标签，只输出“哪类正常关系被破坏”：传感器通道关系（由屏蔽预测冗余支撑）、输入通道可解释成分（由正常模型的输入响应几何支撑）及其正交剩余。三者都只依赖正常模型。代价：落在输入响应空间内的过程故障与执行器偏差\textbf{理论上不可分}（命题 4），必须保留 \texttt{Nonunique} 输出。
+\item \textbf{理论上不可检测的故障类别}（必须在论文 Scope 一节列出）：(i) 输入—输出水平不可见的内部异常（不可观模式）；(ii) 恰好停留在正常行为集合上的偏差；(iii) 编码表示的碰撞（两个不同物理状态映射到同一 $z$）；(iv) 幅值低于正常残差包络的异常；(v) 检测延迟超过 $N_c$ 的极缓漂移可能在告警前污染锚点（对策与诚实声明见第 6 节）。使用相同信息的任何方法都无法检测 (i)--(iii)，这不是本方法的特有缺陷。
+\item \textbf{不承诺物理故障幅值恢复}：$\hat f^{\mathrm{act,eq}}$ 只能称“等效输入偏差”。
+\end{enumerate}
+
+%======================================================================
+\section{严格假设与信息边界}
+%======================================================================
+
+\subsection{系统假设}
+
+\begin{assumption}[对象]\label{as:plant}
+离散时间闭环非线性系统
+\begin{equation}\label{eq:plant}
+u_k^{\mathrm{act}}=u_k+f_k^{\mathrm{act}},\qquad
+x_{k+1}=\mathcal{X}^{n}(x_k,u_k^{\mathrm{act}},\xi_k)+f_k^{\mathrm{proc}}+\varepsilon^x_k,\qquad
+y_k=Cx_k+f_k^{\mathrm{sen}}+\varepsilon^y_k.
+\end{equation}
+\anno{$x_k\in\R^{m_x}$，$u_k\in\R^{m_u}$，$y_k\in\R^{m_y}$，$\xi_k\in\R^{m_\xi}$，$C\in\R^{m_y\times m_x}$ $\mid$ 名义映射 $\mathcal X^n$ 未知 $\mid$ 在线可算：否（概念对象） $\mid$ 仅正常数据：--- $\mid$ 性质：建模假设}
+\end{assumption}
+
+说明：老师稿采用线性输出方程 $y_k=Cx_k$，保留此设定作为主理论版本（传感器故障加性进入输出、便于屏蔽预测分析）；非线性输出 $y_k=\mathcal G(x_k)+f^{\mathrm{sen}}_k$ 作为扩展讨论，不影响潜空间内的推导。
+
+\begin{assumption}[信息边界——训练]\label{as:info-train}
+训练、结构选择、超参数选择、阈值校准\textbf{只允许}使用正常数据 $\mathcal D_{\mathrm{normal}}=\{u_k,y_k,\xi_k\}_{k=1}^{N}$。任务书 2.2 节的禁止事项全部采纳，另补两条：(a) 不允许用故障数据选择 $N_c$、$\ell_h$、窗口集 $\mathcal N_{\mathrm{win}}$；(b) 不允许在看过最终测试结果后回改任何冻结参数（若必须改，旧结果作废重跑）。
+\end{assumption}
+
+\begin{assumption}[信息边界——已知量]\label{as:info-known}
+在线可信已知量：控制器记录指令 $u_k$、测量输出 $y_k$、可测外生工况 $\xi_k$、采样时刻 $k$。$u^{\mathrm{act}}_k$、$x_k$ 及任何故障量均不可测。$\xi_k$ 假定不受故障影响（外生性假设，必须在论文中显式陈述：若 $\xi$ 实际上是内环测量，则历史窗中含当期 $\xi_k$ 会成为瞬时污染路径，见第 6 节）。
+\end{assumption}
+
+\begin{assumption}[正常运行域]\label{as:domain}
+冻结模型在紧致正常潜状态域 $\Zn\subset\R^{m_z}$ 上连续可微；正常强迫项有包络 $\norm{\nu^{E,n}_k+\delta^{\chi,n}_{k\mid s}}_2\le\epsilon_k$（老师稿 Assumption 1）。$\epsilon_k$ 从正常验证数据估计（第 9 节），估计方式决定后续保证是确定性的还是概率性的——本设计选择概率包络并相应诚实降级定理表述（第 9 节）。
+\end{assumption}
+
+\begin{assumption}[校准可交换性]\label{as:exch}
+在冻结全部模型与包络后，同一模糊区域、同一参考年龄组内，不重叠正常校准块得分与未来正常得分可交换（老师稿 Corollary 1 的前提）。时间相关性对此假设的威胁与对策见第 11 节。
+\end{assumption}
+
+\subsection{数据划分协议（冻结版）}
+
+\begin{center}
+\begin{tabular}{llp{0.55\textwidth}}
+\toprule
+数据块 & 比例（建议） & 用途 \\
+\midrule
+正常训练集 & $\sim55\%$ & 学习 $\Enc$、$\Prem$、$\{A_i,B_i,o_i\}$、$C_z$、屏蔽编码器 \\
+正常验证集 & $\sim15\%$ & 选结构/超参/$N_{\max}$/损失权重；估计确定性包络 $\epsilon_k$、$\bar e_s$ \\
+正常校准集 & $\sim20\%$ & 冻结后估计条件矩 $\mu_R,\Sigma_R$、分位数 $\gamma^{\mathrm{cal}}$、$T^{\max}$ 分位 \\
+正常测试段 & $\sim10\%$ & 与故障段一起构成最终测试集，仅一次性评价 \\
+故障数据 & --- & 只进最终测试集 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+按独立运行批次优先划分，否则按时间切不重叠大块；切块间留 $\ell_h+N_{\max}$ 的隔离带，防止相邻窗口共享信息。所有归一化器只在正常训练集上拟合。
+
+\subsection{论文可以主张 / 不可以主张}
+
+\begin{center}
+\begin{tabular}{p{0.5\textwidth}p{0.42\textwidth}}
+\toprule
+可以主张 & 不可以主张 \\
+\midrule
+检测偏离条件正常残差分布的异常（逐点 FAR 保证，见第 11 节修正版推论 1） & 对所有物理故障必然检测 \\
+阻断告警前污染（命题 1，条件于 $N_c\ge N_a$） & $N_a$ 可先验已知（只能给经验上界 + 安全裕度） \\
+有限时间正常自由预测误差界（定理 2，概率包络版） & 无限时间参考可靠性 \\
+结构化类别 + 拒识（7 类输出，第 13 节） & 唯一物理故障定位、真实故障幅值恢复 \\
+全维检测避免投影盲区（命题 3） & 存在对所有未知故障最优的降维滤波器 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section{完整符号表（任务二）}
+%======================================================================
+
+约定：以老师英文稿符号为\textbf{规范符号}（论文最终采用），同时给出任务书符号对照。维度前缀统一为 $m$；时间长度统一为 $N$ 或 $\ell$；$k$ 为当前时刻，$s$ 为起点/锚点。一个字母不表示两个概念。
+
+\subsection{对象与信号}
+
+\begin{longtable}{L{0.24\textwidth}L{0.14\textwidth}L{0.34\textwidth}L{0.16\textwidth}}
+\toprule
+规范符号 & 任务书符号 & 含义 & 维度 \\
+\midrule
+\endhead
+$x_k$ & $x_k$ & 真实物理状态（不可测） & $\R^{m_x}$ \\
+$u_k$ & $u_k$ & 控制器记录指令（可信已知） & $\R^{m_u}$ \\
+$u^{\mathrm{act}}_k$ & $u_k^a$ & 实际施加输入（不可测） & $\R^{m_u}$ \\
+$y_k$ & $y_k^m$ & 传感器测量输出 & $\R^{m_y}$ \\
+$\xi_k$ & $\xi_k$ & 可测外生工况 & $\R^{m_\xi}$ \\
+$f^{\mathrm{act}}_k,f^{\mathrm{proc}}_k,f^{\mathrm{sen}}_k$ & $f_k^a,f_k^p,f_k^s$ & 执行器/过程/传感器故障 & $\R^{m_u},\R^{m_x},\R^{m_y}$ \\
+$\varepsilon^x_k,\varepsilon^y_k$ & $w_k,v_k$ & 过程扰动、测量噪声 & $\R^{m_x},\R^{m_y}$ \\
+$C$ & --- & 物理输出矩阵 & $\R^{m_y\times m_x}$ \\
+\bottomrule
+\end{longtable}
+
+\subsection{编码与三个潜在状态（严格区分）}
+
+\begin{longtable}{L{0.24\textwidth}L{0.11\textwidth}L{0.37\textwidth}L{0.16\textwidth}}
+\toprule
+规范符号 & 任务书符号 & 含义 & 维度 \\
+\midrule
+\endhead
+$d^-_k$ & $H_k^-$ & 严格过去历史 $\col(u_{k-\ell_h:k-1},y_{k-\ell_h:k-1},\xi_{k-\ell_h:k})$ & $\R^{m_d}$，\newline $m_d=\ell_h(m_u{+}m_y)$ \newline $+\,(\ell_h{+}1)m_\xi$ \\
+$\Enc$ & $E_\vartheta$ & 因果 Attention 编码器（参数 $\vartheta$） & $\R^{m_d}\to\R^{m_z}\times\R^{m_\chi}$ \\
+$z^E_k$ & $z_k^E$ & \textbf{数据编码状态}（持续读真实历史） & $\R^{m_z}$ \\
+$\chi^E_k$ & $\chi_k^E$ & 数据支路 Attention 上下文 & $\R^{m_\chi}$ \\
+$\hat z_{t\mid s}$ & $\hat z_{t\mid s}$ & 从起点 $s$ 出发的\textbf{自由预测状态} & $\R^{m_z}$ \\
+$\chi^n_{t\mid s}$ & $\chi_{t\mid s}^0$ & 受保护支路上下文（由预测历史生成） & $\R^{m_\chi}$ \\
+$z^n_k=\hat z_{k\mid s^n_k}$ & $z_k^0$ & \textbf{长期受保护正常状态} & $\R^{m_z}$ \\
+$\hat y^n_{t\mid s}=C_z\hat z_{t\mid s}$ & $\hat y_t^0$ & 正常预测输出 & $\R^{m_y}$ \\
+$s^n_k$ & $s_k^0$ & 时刻 $k$ 的最近已确认安全锚点 & $\mathbb N$ \\
+$\hat d^{\,n}_{t\mid s}$ & --- & 受保护历史缓冲（预测输出 + 记录 $u,\xi$） & $\R^{m_d}$ \\
+\bottomrule
+\end{longtable}
+
+\subsection{T--S 模糊与局部 Koopman}
+
+\begin{longtable}{L{0.28\textwidth}L{0.12\textwidth}L{0.32\textwidth}L{0.16\textwidth}}
+\toprule
+规范符号 & 任务书符号 & 含义 & 维度 \\
+\midrule
+\endhead
+$\Prem$ & $P_\eta$ & 前提网络（参数 $\eta$） & $\to\R^{m_\rho}$ \\
+$\rho$ & $\rho_k$ & 前提向量 $\Prem(\col(z,\chi,u,\xi))$ & $\R^{m_\rho}$ \\
+$\varsigma_i(\rho)$ & $s_i(\rho)$ & 规则 $i$ 度量得分 $-\tfrac12(\rho-p_i)^\top M_i(\rho-p_i)+o^\omega_i$ & $\R$ \\
+$\omega_i(\rho)$ & $h_i(\rho)$ & 归一化规则权重（softmax），$\sum_i\omega_i=1$ & $[0,1]$ \\
+$p_i,M_i,o^\omega_i$ & $c_i,M_i,b_i^h$ & 规则原型、正定度量、得分偏置 & $\R^{m_\rho}$, $\R^{m_\rho\times m_\rho}$, $\R$ \\
+$N_{\mathrm{rule}}$ & $r$ & 规则数 & $\mathbb N$ \\
+$v_i(z,u)=A_iz+B_iu+o_i$ & $v_i$ & 局部 Koopman 后件 & $A_i{\in}\R^{m_z\times m_z}$，$B_i{\in}\R^{m_z\times m_u}$，$o_i{\in}\R^{m_z}$ \\
+$\ZT(z,u,\xi;\chi)=\sum_i\omega_i(\rho)v_i(z,u)$ & $F_\Theta$ & 完整 T--S Koopman 动力学 & $\to\R^{m_z}$ \\
+$C_z$ & $C_z$ & 潜空间输出解码器 & $\R^{m_y\times m_z}$ \\
+\bottomrule
+\end{longtable}
+
+\subsection{残差、Jacobian 与误差界}
+
+\begin{longtable}{L{0.28\textwidth}L{0.12\textwidth}L{0.32\textwidth}L{0.16\textwidth}}
+\toprule
+规范符号 & 任务书符号 & 含义 & 维度 \\
+\midrule
+\endhead
+$e^z_{k\mid s}=z^E_k-\hat z_{k\mid s}$ & $e_{k\mid s}^z$ & 统一起点索引残差 & $\R^{m_z}$ \\
+$\nu^E_k$ & $\nu_k^E$ & 数据支路一步创新 & $\R^{m_z}$ \\
+$\delta^\chi_{k\mid s}$ & $\delta_{k\mid s}^\chi$ & 上下文失配项 & $\R^{m_z}$ \\
+$A_{k\mid s}$ & $A_{k\mid s}$ & 线段平均状态 Jacobian & $\R^{m_z\times m_z}$ \\
+$\Phi(k,j)$ & $\Phi(k,j)$ & 状态转移积 $A_{k-1\mid s}\cdots A_{j\mid s}$，$\Phi(k,k)=I$ & $\R^{m_z\times m_z}$ \\
+$A_\omega,B_\omega$ & $A_h,B_h$ & 权重加权局部动力学 $\sum_i\omega_iA_i$、$\sum_i\omega_iB_i$ & $\R^{m_z\times m_z}$，$\R^{m_z\times m_u}$ \\
+$\Delta_\rho$ & $C_\rho$ & 权重变化项 $\sum_i\omega_i(v_i-\bar v)(\varsigma^\nabla_i-\bar\varsigma^\nabla)^\top$ & $\R^{m_z\times m_\rho}$ \\
+$J_{\rho,z},J_{\rho,u}$ & 同 & 前提对 $z$、$u$ 的 Jacobian & $\R^{m_\rho\times m_z}$，$\R^{m_\rho\times m_u}$ \\
+$\Sigma_v,\Sigma_\varsigma$ & $V,G$ & 局部模型 / 得分梯度分散度矩阵 & $\R^{m_z\times m_z}$，$\R^{m_\rho\times m_\rho}$ \\
+$L_k$ & $L_k$ & 局部放大因子（$\norm{J_z\ZT}_2$ 上界） & $\R_{\ge0}$ \\
+$\epsilon_k$ & $\epsilon_k$ & 正常强迫包络 & $\R_{\ge0}$ \\
+$\beta^z_{k\mid s},\beta^y_k,\beta^{\mathrm{dyn}}_k,\beta^{\mathrm{lg}}_k,\beta^R_k$ & --- & 确定性误差半径族 & $\R_{\ge0}$ \\
+$N^\star_g$ & $N_c^\star$ & 模糊区域 $g$ 的可靠预测长度 & $\mathbb N$ \\
+\bottomrule
+\end{longtable}
+
+\subsection{检测与阈值}
+
+\begin{longtable}{L{0.28\textwidth}L{0.12\textwidth}L{0.32\textwidth}L{0.16\textwidth}}
+\toprule
+规范符号 & 任务书符号 & 含义 & 维度 \\
+\midrule
+\endhead
+$r^y_k=y_k-C_zz^E_k$ & $r_k^y$ & 当前输出残差 & $\R^{m_y}$ \\
+$r^{\mathrm{dyn}}_{k,N_{\mathrm{dyn}}}$ & $r_{k,N_d}^d$ & 堆叠一步创新（短期动态残差） & $\R^{N_{\mathrm{dyn}}m_z}$ \\
+$r^{\mathrm{lg}}_k=e^z_{k\mid s^n_k}$ & $r_k^L$ & 长期受保护残差 & $\R^{m_z}$ \\
+$R_k$ & $R_k$ & 联合残差 $\col(r^y,r^{\mathrm{dyn}},r^{\mathrm{lg}})$ & $\R^{m_R}$，$m_R=m_y+(N_{\mathrm{dyn}}{+}1)m_z$ \\
+$\zeta_k$ & $\zeta_k$ & 受保护运行描述符 & $\R^{m_\zeta}$ \\
+$\ell^{\mathrm{ref}}_k=k-s^n_k$ & $a_k$ & 参考年龄 & $\mathbb N$ \\
+$\mu_R(\zeta),\Sigma_R(\zeta)$ & 同 & 条件均值 / 条件协方差 & $\R^{m_R}$，$\R^{m_R\times m_R}$ \\
+$W_k=\Sigma_R(\zeta_k)^{-1/2}$ & $W_k$ & 条件白化矩阵（满秩） & $\R^{m_R\times m_R}$ \\
+$T^{\mathrm{det}}_k$ & $J_k$ & 瞬时检测统计量 & $\R_{\ge0}$ \\
+$\gamma^{\mathrm{det}}_k$, $\gamma^{\mathrm{cal}}_{g,\ell,1-\alpha}$, $\gamma^{\mathrm{dyn}}_k$ & $\gamma_k^{\mathrm{det}}$, $q_{c,a,1-\alpha}$, $J_k^{\mathrm{dyn}}$ & 确定性 / 校准 / 总动态阈值 & $\R_{\ge0}$ \\
+$\mathcal N_{\mathrm{win}}$ & $\mathcal N$ & 多尺度窗口集合 & 有限集 \\
+$T^{\max}_k$ & $S_k^{\max}$ & 多尺度最大超额统计量 & $\R$ \\
+$\alpha$ & $\alpha$ & 逐点误报水平 & $(0,1)$ \\
+\bottomrule
+\end{longtable}
+
+\subsection{隔离与时间参数}
+
+\begin{longtable}{L{0.24\textwidth}L{0.16\textwidth}L{0.48\textwidth}}
+\toprule
+规范符号 & 任务书符号 & 含义 \\
+\midrule
+\endhead
+$\Lambda\in\{0,1\}^{m_y}$，$\Lambda^{-j}$ & $M,M^{-j}$ & 传感器可用掩码 / 屏蔽通道 $j$ \\
+$z^{E,-j}_k$，$r^{\mathrm{sen}}_{j,k}$ & $z_k^{E,-j},r_{j,k}^s$ & 屏蔽编码状态、屏蔽预测残差 \\
+$B^u_k=J_u\ZT$ & $B_k^u$ & 完整输入 Jacobian $B_{\omega,k}+\Delta_{\rho,k}J_{\rho,u,k}$ \\
+$B^{\mathrm{resp}}_{k,N_i}$ & $\mathcal B_{k,N_a}$ & 有限时间输入响应矩阵（隔离窗 $N_i$） \\
+$\Pi_{u,k}$，$T^{\mathrm{act}}_k$，$T^{\mathrm{proc}}_k$ & $P_{u,k},T_k^a,T_k^p$ & 输入响应投影、执行器兼容能量、过程侧剩余 \\
+$\hat f^{\mathrm{act,eq}}_{k,N_i}$ & $\hat f^{a,\mathrm{eq}}$ & 等效输入偏差（非物理故障估计） \\
+$\ell_h$ & $\ell_h$ & 编码历史长度 \\
+$\ell_s$ & $L_s$ & 短期滚动窗口长度 \\
+$N_c$ & $D_c$ & 延迟确认样本数 \\
+$N_a$ & $D_a$ & 检测器最大响应延迟（经验量） \\
+$N_{\mathrm{dyn}}$ & $N_d$ & 动态残差堆叠长度 \\
+$N_\zeta$ & $N$（描述符窗） & 描述符窗口长度 \\
+$N_i$ & $N_a$（任务书隔离窗符号，弃用） & 隔离窗口长度 \\
+$N_{\max}$ & $N_{\max}$ & 训练最大预测长度 \\
+\bottomrule
+\end{longtable}
+
+\begin{remark}[符号冲突消解]
+任务书用 $D_a$ 表示告警延迟又用 $N_a$ 表示隔离窗；规范符号中告警延迟记 $N_a$、隔离窗记 $N_i$，不再混用。任务书的 $r$（规则数）与残差 $r$ 冲突，规范符号用 $N_{\mathrm{rule}}$。老师稿式 (24) 中 $A_{h,k}$ 系 $A_{\omega,k}$ 的笔误，统一为 $A_\omega$。
+\end{remark}
+
+%======================================================================
+\section{总体架构}
+%======================================================================
+
+\subsection{四模块结构}
+
+\begin{center}
+\begin{tabular}{L{0.13\textwidth}L{0.33\textwidth}L{0.40\textwidth}}
+\toprule
+模块 & 输入 & 输出与职责 \\
+\midrule
+M1 实际数据支路 & $d^-_k$（严格过去历史） & $z^E_k,\chi^E_k$；描述系统现在实际发生什么 \\
+M2 正常 Koopman--T--S 模型 & $z,\chi,u,\xi$ & $\ZT$、$C_z$；描述正常系统应如何演化 \\
+M3 受保护参考与检测 & M1、M2、锚点状态机 & $\hat z_{k\mid k-\ell_s}$、$z^n_k$、三类残差、$T^{\mathrm{det}}_k$、$T^{\max}_k$、$\gamma^{\mathrm{dyn}}_k$、告警 \\
+M4 告警后结构化隔离 & 冻结模型、屏蔽编码器、输入 Jacobian & 7 类结构化结论（含拒识） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{双支路信息流（核心不变量）}
+
+\begin{itemize}
+\item \textbf{数据支路}（每步更新）：$y_{k-\ell_h:k-1},u_{k-\ell_h:k-1},\xi_{k-\ell_h:k}\to d^-_k\to(z^E_k,\chi^E_k)$。当前测量 $y_k$ \textbf{被排除}在 $d^-_k$ 之外：(i) 当前传感器异常无法瞬间进入潜状态；(ii) $r^y_k$ 对传感器故障保留直接敏感性；(iii) 建立明确的故障传播时间顺序（时刻 $\tau$ 的异常最早出现在 $z^E_{\tau+1}$）；(iv) 为命题 1 与传感器隔离提供理论基础。
+\item \textbf{受保护支路}（只从确认锚点出发）：$\hat z_{s\mid s}=z^E_s$，$\hat d^{\,n}_{s\mid s}=d^-_s$；此后
+\begin{equation}\label{eq:protected-rollout}
+\chi^n_{t\mid s}=\mathcal E^\chi_\vartheta(\hat d^{\,n}_{t\mid s}),\qquad
+\hat z_{t+1\mid s}=\ZT(\hat z_{t\mid s},u_t,\xi_t;\chi^n_{t\mid s}),\qquad
+\hat y^n_{t\mid s}=C_z\hat z_{t\mid s},
+\end{equation}
+其中 $\hat d^{\,n}_{t\mid s}$ 用\textbf{预测输出} $\hat y^n$ 与\textbf{记录的} $u,\xi$ 滚动更新，绝不读取锚点之后的测量。
+\anno{各量维度见符号表 $\mid$ 需已确认锚点 $s$ 与冻结模型 $\mid$ 在线可算：是 $\mid$ 仅正常数据：是（模型）$\mid$ 性质：严格（定义）}
+\item \textbf{三个潜状态并存}：$z^E_k$（实际）、$\hat z_{k\mid k-\ell_s}$（短期自由预测）、$z^n_k=\hat z_{k\mid s^n_k}$（长期受保护参考）。三者在任何实现中不得共享可变缓冲。
+\end{itemize}
+
+\subsection{在线每步计算顺序}
+
+$d^-_k\to(z^E_k,\chi^E_k)$ $\to$ 更新短期滚动预测与长期受保护支路 \eqref{eq:protected-rollout} $\to$ 组装 $r^y_k,r^{\mathrm{dyn}}_{k},r^{\mathrm{lg}}_k$ 与描述符 $\zeta_k$ $\to$ 条件白化与多尺度统计 $\to$ 阈值比较与状态机转移 $\to$（仅告警后）结构化隔离。计算成本分析见第 21 节。
+
+%======================================================================
+\section{离线训练算法（任务三、任务四）}
+%======================================================================
+
+\subsection{模型结构逐件规定}
+
+\begin{enumerate}
+\item \textbf{token 化}：历史 $d^-_k$ 按时刻切成 $\ell_h$ 个 token，记 $t'=k-\ell_h+t-1$，第 $t$ 个 token 为 $\col(u_{t'},y_{t'},\xi_{t'})$，经线性嵌入 $\R^{m_u+m_y+m_\xi}\to\R^{m_e}$ 再加位置编码；当期 $\xi_k$ 作为附加 token 或并入末 token。
+\item \textbf{因果 Attention 编码器} $\Enc$：$n_{\mathrm{lay}}$ 层多头自注意力（头数 $n_{\mathrm{head}}$，头宽 $m_a$），加性因果掩码 $\Lambda^-$（上三角 $-\infty$）；末 token 的表示经两个线性头分别输出 $z^E_k\in\R^{m_z}$ 与 $\chi^E_k\in\R^{m_\chi}$。掩码输入版本 $\Enc(d^-_k,\Lambda)$ 通过把被屏蔽通道的 token 分量置零并拼接掩码指示向量实现（共享参数，见第 12 节）。
+\item \textbf{激活函数}：编码器与前提网络一律用光滑激活（GELU/tanh/softplus），\textbf{不用 ReLU}——第 8 节的 Jacobian 分析要求 $C^1$；分段线性网络需要区间 Jacobian 或广义 Jacobian 处理，代价大于收益。
+\item \textbf{前提网络} $\Prem$：两层 MLP，输入 $\col(z,\chi,u,\xi)\in\R^{m_z+m_\chi+m_u+m_\xi}$，输出 $\rho\in\R^{m_\rho}$（建议 $m_\rho\in[4,12]$，远小于输入维，起信息瓶颈作用）。
+\item \textbf{隶属度}：度量得分 $\varsigma_i(\rho)=-\tfrac12(\rho-p_i)^\top M_i(\rho-p_i)+o^\omega_i$，$M_i$ 用老师稿式 (9) 的有界谱参数化 $M_i=g_{\min}I+(g_{\max}-g_{\min})\,G_iG_i^\top/(\norm{G_i}^2_{\mathrm{fro}}+\epsilon_G)$，保证 $g_{\min}I\preceq M_i\preceq g_{\max}I$（避免度量退化与权重饱和）。
+\item \textbf{局部 Koopman 后件}：$v_i(z,u)=A_iz+B_iu+o_i$。$A_i$ 用谱半径软约束参数化（见 \S\ref{sec:train-reg}）。
+\item \textbf{解码器}：主理论版本用线性 $C_z$（保证 $r^y$ 分析与传感器隔离的线性结构）；非线性解码器仅作对比实验。
+\item \textbf{维度基准}（闭环 CSTR 规模，$m_u,m_y\le 4$）：$m_z\in[8,24]$，$m_\chi\in[8,16]$，$m_e=32$，$n_{\mathrm{lay}}=2$，$n_{\mathrm{head}}=4$，$N_{\mathrm{rule}}\in[3,7]$，$\ell_h\in[20,50]$。全部由正常验证集选定后冻结。
+\end{enumerate}
+
+\subsection{自由多步训练目标}
+
+训练与在线使用同一自由递推 \eqref{eq:protected-rollout}，仅起点选择规则不同（见第 7 节统一残差）。从正常训练集随机采样锚点 $s$ 与预测长度 $N\sim\mathrm{Unif}\{1,\dots,N_{\max}\}$（随机长度防止对固定视野过拟合），中间步骤\textbf{不读取}真实未来输出：
+
+\begin{equation}\label{eq:loss}
+\mathcal L=\mathcal L_{\mathrm{enc}}
++\lambda_z\mathcal L^{\mathrm{ms}}_z
++\lambda_y\mathcal L^{\mathrm{ms}}_y
++\lambda_{\mathrm{mask}}\mathcal L_{\mathrm{mask}}
++\lambda_{\mathrm{rule}}\mathcal L_{\mathrm{fuzzy}}
++\lambda_J\mathcal L_{\mathrm{prop}},
+\end{equation}
+\begin{equation}\label{eq:msloss}
+\mathcal L^{\mathrm{ms}}_z=\sum_{j=1}^{N}w^z_j\norm{z^E_{s+j}-\hat z_{s+j\mid s}}^2_{W_z},\qquad
+\mathcal L^{\mathrm{ms}}_y=\sum_{j=1}^{N}w^y_j\norm{y_{s+j}-\hat y^n_{s+j\mid s}}^2_{W_y}.
+\end{equation}
+\anno{$W_z\succ0,W_y\succ0$ 为逐维尺度权重（由训练集方差取逆）$\mid$ 起点历史 $\hat d^{\,n}_{s\mid s}=d^-_s$ 已满 $\mid$ 在线可算：---（离线）$\mid$ 仅正常数据：是 $\mid$ 性质：经验（训练目标）}
+
+任务书 6.5 节问题的逐条决定：
+
+\begin{enumerate}
+\item \textbf{一步与多步配比}：$\mathcal L^{\mathrm{ms}}_z$ 的 $j=1$ 项即一步损失，无需单列；课程式训练——前 1/3 epoch 用 $N_{\max}=1$（等价一步），中 1/3 线性增至目标 $N_{\max}$，后 1/3 固定。防止训练初期自由递推发散导致梯度爆炸。
+\item \textbf{视野权重 $w_j$}：推荐均匀 $w_j=1/N$ 为主设定，$w_j\propto\gamma^j$（$\gamma\in\{0.9,1.0,1.1\}$）作为验证集上的超参扫描；理由：递减权重偏向短期精度（利短期残差），递增权重偏向长程稳定（利长期参考），何者占优取决于数据，由正常验证集的多步误差曲线决定，不由理论钦定。
+\item \textbf{$N_{\max}$ 选择}：取目标可靠预测长度的上界候选，建议 $N_{\max}\approx2\ell_h$（CSTR 规模约 $40\sim100$ 步），并在验证集画“误差--视野”曲线确认递推不发散后冻结。
+\item \textbf{潜/输出残差平衡}：$\lambda_z$ 与 $\lambda_y$ 的量纲差异用 $W_z,W_y$ 归一后，从 $\lambda_z=\lambda_y=1$ 出发在验证集小网格扫描。$\mathcal L^{\mathrm{ms}}_z$ 的目标 $z^E_{s+j}$ 是编码器自身输出（自监督），必须配合防退化正则（下条）。
+\item \textbf{防潜空间退化}：(i) $\mathcal L_{\mathrm{enc}}$ 含解码一致性项 $\norm{y_t-C_zz^E_t}^2$（潜状态必须携带输出信息，排除 $z\equiv0$ 塌缩）；(ii) 对 $z^E$ 批内做方差归一正则（VICReg 式方差项），排除任意缩放；(iii) 不采用 stop-gradient 直通 $z^E$ 目标——多步目标 $z^E_{s+j}$ 取 \texttt{detach}，防止编码器为迎合预测器而移动目标。
+\item \textbf{防规则塌缩}：$\mathcal L_{\mathrm{fuzzy}}=\lambda_{\mathrm{ent}}\,\E_k[\mathrm{KL}(\bar\omega\,\|\,\mathrm{Unif})]+\lambda_{\mathrm{bal}}\sum_i(\E_k[\omega_{i,k}]-1/N_{\mathrm{rule}})^2$，其中 $\bar\omega=\E_k[\omega_k]$：批平均权重接近均匀（每条规则都被使用），但\textbf{不}惩罚单样本权重尖锐化（允许清晰分区）。$M_i$ 的有界谱参数化已防度量病态。
+\item \textbf{谱与传播正则}：$\mathcal L_{\mathrm{prop}}$ 不直接惩罚各 $A_i$ 谱半径（局部稳定不充分也不必要，见第 8 节注 2），而惩罚\textbf{完整 Jacobian 的有限视野乘积}：随机抽少量锚点，沿自由递推计算 $\prod_{p}\norm{J_z\ZT}_2$ 的对数和的超出部分 $\max(0,\sum_p\log L_p^{\mathrm{loc}})$（Jacobian--向量积估计谱范数，每 batch 仅 1--2 条轨迹，控制开销）。同时对 $A_i$ 采用软谱约束参数化 $A_i=\bar A_i/\max(1,\sigma_{\max}(\bar A_i)/\sigma_{\mathrm{cap}})$，$\sigma_{\mathrm{cap}}\in[1.0,1.05]$——作为数值保险而非理论依据。
+\item \textbf{屏蔽训练} $\mathcal L_{\mathrm{mask}}$：见第 12 节（随机掩码分布、共享编码器）。
+\item \textbf{损失权重选择}：全部 $\lambda$ 由正常验证集上的复合指标（多步 RMSE + 规则有效数 + 递推稳定率）小网格选择；固定随机种子记录选择过程，冻结后写入协议。
+\end{enumerate}
+
+\subsection{训练流程（老师稿 Algorithm 1 的落实）}\label{sec:train-reg}
+
+\begin{algorithm}[H]
+\caption{仅正常数据的离线设计流程}
+\begin{algorithmic}[1]
+\Require 正常训练/验证/校准集（第 2 节划分），随机种子列表
+\State \textbf{阶段 A（训练集）}：联合训练 $\Enc,\Prem,\{p_i,M_i,o^\omega_i\},\{A_i,B_i,o_i\},C_z$ 与掩码机制，损失为 \eqref{eq:loss}，课程式视野调度
+\State \textbf{阶段 B（验证集）}：选结构与超参（$m_z,N_{\mathrm{rule}},\ell_h,N_{\max},\lambda$ 族）；画多步误差曲线；确定模糊区域划分 $g$ 与区域样本数
+\State \textbf{阶段 C（验证集）}：估计确定性包络 $\bar e_s,\bar\epsilon^y_k,\bar\epsilon^{\mathrm{dyn}}_k,\bar\epsilon^z_k$（区域条件分位数，见第 9 节）；计算 $L_k$ 分布与各区域 $N^\star_g$
+\State \textbf{阶段 D（校准集，模型与包络已冻结）}：估计条件矩 $\mu_R(\zeta),\Sigma_R(\zeta)$（第 10 节）；对瞬时与多尺度超额得分做分块 conformal 校准（第 11 节）；校准隔离统计的正常分位（第 12--13 节）
+\State \textbf{阶段 E}：冻结全部参数并写入协议文件（配置哈希、数据校验和、种子）
+\end{algorithmic}
+\end{algorithm}
+
+\begin{remark}[训练--在线一致性]
+训练（\ref{eq:msloss}）、短期监测（$s=k-\ell_s$）与长期监测（$s=s^n_k$）使用同一递推 \eqref{eq:protected-rollout} 与同一残差对象 $e^z_{k\mid s}$，只是起点规则不同。这消除了“训练教师强制、在线自由递推”的分布错配，是第 7 节统一残差的动机。
+\end{remark}
+
+%======================================================================
+\section{在线监测状态机（任务五）}
+%======================================================================
+
+本节给出受保护参考的完整在线逻辑。相对老师稿，本设计做了四处修正（对应第 16 节问题 P1-1…P1-4）：确认时刻约定钉死、$\xi$ 外生性显式化、预警（而非报警）承担清队职责、恢复等待改为 $\ell_h{+}1{+}N_c$。
+
+\subsection{附加假设}
+
+\begin{assumption}[$\xi$ 外生性，A-$\xi$]\label{as:xi}
+$\xi_k$ 由闭环外部独立生成并独立测量，故障集合 $\{f^{\mathrm{act}},f^{\mathrm{proc}},f^{\mathrm{sen}}\}$ 不影响 $\xi$ 的真实值与测量值。此假设下 $d^-_k$ 中的当期 $\xi_k$ 不构成瞬时污染路径，最早受污染编码为 $z^E_{\tau+1}$。若某应用中 $\xi$ 可能受故障影响，应把 $d^-_k$ 中 $\xi$ 截断到 $k-1$ 并将命题 1 条件改为 $N_c\ge N_a+1$。
+\end{assumption}
+
+\begin{assumption}[检测响应性，A-det]\label{as:det}
+存在 $N_a\in\mathbb N$ 使\textbf{预警}（非报警）在异常起始 $\tau$ 后至多 $N_a$ 拍触发。
+\anno{--- $\mid$ 对“可预警故障”类成立 $\mid$ 在线可算：否（$N_a$ 为经验量）$\mid$ 仅正常数据：$N_a$ 不可由故障数据估计 $\mid$ 性质：经验（前提），见 \S6.4 的整定}
+\end{assumption}
+
+\subsection{命题 1（修正表述）与污染阻断}
+
+\textbf{确认约定（必须钉死）}：候选 $(s,z^E_s)$ 于时刻 $s$ 入队，当且仅当区间 $[s,s+N_c]$ 内无任何预警触发时，在时刻 $s+N_c$ 确认。$N_c,N_a\in\mathbb Z_{\ge0}$。
+
+\begin{proposition}[告警前污染阻断，修正版]\label{prop:block}
+设异常起始于 $\tau$，假设 A-$\xi$、A-det 成立，且每拍处理次序为“先算统计量 $\to$ 更新预警状态 $\to$ 预警激活则清空候选队列 $\to$ 最后处理到期确认”。若 $N_c\ge N_a$，则任何编码历史包含 $\tau$ 后测量的候选都不可能在预警前被确认。
+\end{proposition}
+
+\begin{proof}
+严格因果性与 A-$\xi$ 给出最早受污染编码为 $z^E_{\tau+1}$，其入队时刻 $\ge\tau+1$，最早确认时刻 $\ge\tau+1+N_c$。预警最晚于 $\tau+N_a$ 触发并即刻清空未确认队列。整数域上 $\tau+1+N_c>\tau+N_a\iff N_c\ge N_a$。$N_c=N_a$ 时确认时刻严格晚于预警至少一拍，处理次序规定消除了同拍竞态。
+\end{proof}
+\anno{--- $\mid$ 条件：A-$\xi$、A-det、整数时序约定、处理次序 $\mid$ 在线可算：机制可执行 $\mid$ 仅正常数据：是 $\mid$ 性质：\textbf{给定前提下的严格定理}（纯计数论证）；前提 A-det 中的 $N_a$ 为经验量}
+
+\begin{remark}[三条诚实声明]\label{rem:honest-anchor}
+(i) 历史完全早于 $\tau$ 的候选即使在故障期间到期确认也不引入污染（内容全部来自正常段），命题只需阻断受污染候选。(ii) 对低于预警灵敏度的极缓漂移故障（$N_a=\infty$），本机制不提供保护——这是仅正常数据设定的固有极限，须在论文 Scope 声明；长期残差 $r^{\mathrm{lg}}$ 与多尺度长窗统计是对该盲区的部分补偿（缓漂移在长窗内积累后触发预警，从而回到命题 1 的适用范围）。(iii) 报警计数器（m-of-n 滑窗 / CUSUM）应跨换锚保持连续，避免换锚把 $e^z$ 重置为零而损失检测证据。
+\end{remark}
+
+\subsection{预警 / 报警规则（推荐缺省）}
+
+预警职责是“尽早清队保护锚点”，允许较高误警率（误警代价仅是暂缓换锚）；报警职责是“确诊”，用持续性规则压低误报。
+
+\begin{itemize}
+\item \textbf{预警}：$T^{\mathrm{det}}_k>\gamma^{\mathrm{warn}}_k$ 连续 2 拍，或单拍超过瞬时高门限；$\gamma^{\mathrm{warn}}$ 用 $\alpha_{\mathrm{warn}}\approx2\%$ 校准（第 11 节同一机制、更宽显著性）。
+\item \textbf{报警}：滑窗 $n=7$ 内 $\ge m=5$ 拍超过 $\gamma^{\mathrm{dyn}}_k$（$\alpha_{\mathrm{alarm}}\approx0.2\%$），或等价 CUSUM $g_k=\max(0,g_{k-1}+T^{\mathrm{det}}_k-\gamma^{\mathrm{dyn}}_k)>h$。
+\item \textbf{预警解除（迟滞）}：$T^{\mathrm{det}}_k<0.8\,\gamma^{\mathrm{warn}}_k$ 连续 $N_h=5$ 拍。
+\item \textbf{覆盖域判据}：$\min_i(\rho_k-p_i)^\top M_i(\rho_k-p_i)$ 超正常 99.9\% 分位，或 $\max_i\omega_i<\omega_{\min}$（如 $2/N_{\mathrm{rule}}$），或描述符 $\zeta_k$ 的共形覆盖检验触发（第 11 节）。
+\end{itemize}
+\anno{--- $\mid$ 门限分位数由正常校准集确定 $\mid$ 在线可算：是 $\mid$ 仅正常数据：是 $\mid$ 性质：m-of-n 结构为启发式（工程先例充分），分位取值为经验设计}
+
+\subsection{\texorpdfstring{$N_c$}{Nc} 整定：化解“鸡生蛋”}\label{sec:nc}
+
+$N_a$ 依赖故障类型与幅值，仅正常数据下不可估。化解：把不可估的“故障响应时延”替换为可分析的“\textbf{证据传播链路时延上界}”。某拍异常测量 $y_t$ 在编码历史窗内停留 $\ell_h$ 拍（影响 $z^E_{t+1..t+\ell_h}$）；若这 $\ell_h$ 拍加预警持续判据 2 拍内，所有含该证据的编码都没能把统计量推过预警线，则该故障属“低于预警灵敏度”，任何阈值方案都无法为它保护锚点（与 $N_c$ 无关）。故对可预警故障，有效 $N_a\le\ell_h+2$，取
+\begin{equation}\label{eq:nc}
+N_c=\ell_h+n+\text{margin}\qquad(\text{推荐 }N_c=\ell_h+7+3=\ell_h+10),
+\end{equation}
+其中 $n$ 覆盖报警窗口。再用\textbf{正常数据上的合成扰动注入}（对 $z^E$ 加扰，非伪造故障）测量预警响应延迟分布，验证 $N_c$ 覆盖其上界——这是对预警链路时延的分析，不需要真实故障数据。
+\anno{--- $\mid$ 条件：“可预警故障”类 $\mid$ 在线可算：离线整定 $\mid$ 仅正常数据：是 $\mid$ 性质：经验设计；其条件化保证（对可预警故障成立）是严格的}
+
+\subsection{状态机}
+
+七个状态：\texttt{WARMUP} / \texttt{NORMAL\_CANDIDATE} / \texttt{PROTECTED} / \texttt{WARNING} / \texttt{ALARM} / \texttt{RECOVERY} / \texttt{OUT\_OF\_COVERAGE}。命名缓冲：\texttt{HistBuf}（长 $\ell_h{+}1$ 的 $(u,y,\xi)$ 环形区）、\texttt{CandQ}（未确认候选表）、\texttt{AnchorRing}（$K{=}2\sim3$ 个已确认锚，各自并行传播保护支路）、\texttt{ProtHist}（保护支路历史，$y$ 通道只存 $\hat y^n$）、\texttt{WarnState}（锁存、解除计数）、\texttt{AlarmWin}（m-of-n 位图或 CUSUM）、\texttt{CleanCnt}（恢复计数）。
+
+\textbf{转移表}（当前态 $\mid$ 守卫 $\to$ 次态 $\mid$ 动作）：
+
+\begin{enumerate}[label=T\arabic*]
+\item \texttt{WARMUP} $\mid$ $k\ge\ell_h+1$ $\to$ \texttt{NORMAL\_CANDIDATE} $\mid$ 开放 \texttt{CandQ}。
+\item \texttt{NORMAL\_CANDIDATE} $\mid$ 首个候选确认 $\to$ \texttt{PROTECTED} $\mid$ $s^n\leftarrow s$，$\hat z_{s\mid s}=z^E_s$，入 \texttt{AnchorRing}。
+\item \texttt{NORMAL\_CANDIDATE} $\mid$ 预警触发 $\to$ \texttt{WARNING} $\mid$ 清空 \texttt{CandQ}。
+\item \texttt{PROTECTED} $\mid$ 每拍 $\to$ \texttt{PROTECTED} $\mid$ 传播 \eqref{eq:protected-rollout}；算 $T^{\mathrm{det}}_k$；无预警则 $z^E_k$ 入 \texttt{CandQ}；处理到期确认；锚龄达 $N_{\mathrm{refresh}}=\lfloor N^\star_g/2\rfloor$ 且有更年轻合格锚则换锚（报警计数不清零）。
+\item \texttt{PROTECTED} $\mid$ 预警触发 $\to$ \texttt{WARNING} $\mid$ 立即清空 \texttt{CandQ} 并冻结接收；锚点与 \texttt{AnchorRing} 不动；报警计数继续累计。
+\item \texttt{WARNING} $\mid$ m-of-n 报警成立 $\to$ \texttt{ALARM} $\mid$ 冻结 $s^n$；启动第 12--13 节隔离。
+\item \texttt{WARNING} $\mid$ 预警解除（迟滞）$\to$ \texttt{PROTECTED} $\mid$ 恢复 \texttt{CandQ} 接收（从空队列重启）；参考/锚点\textbf{不}重置。——短暂误警的代价仅为 $N_h+N_c$ 拍内暂无新锚，检测连续性无损。
+\item \texttt{ALARM} $\mid$ 处置完成（操作员确认或统计量回落连续 $n$ 拍）$\to$ \texttt{RECOVERY} $\mid$ \texttt{CleanCnt}$\,=0$。
+\item \texttt{RECOVERY} $\mid$ 每拍：统计量低于带迟滞的预警下限且在覆盖域内则 \texttt{CleanCnt}++，否则清零；\texttt{CleanCnt}$\,=\ell_h+1$ 时恢复候选接收；首个候选再经 $N_c$ 拍确认（合计 $\bm{\ell_h+1+N_c}$ 个干净样本，修正老师稿的 $\ell_h+N_c$）$\to$ \texttt{PROTECTED}。“干净”用可观测代理定义（统计量、状态机、覆盖域），不依赖不可观测的真实故障结束时刻 $\tau_e$。
+\item 任意态 $\mid$ 覆盖域判据触发 $\to$ \texttt{OUT\_OF\_COVERAGE} $\mid$ 冻结候选接收与故障判定；保护支路可继续传播但标记不可信。
+\item \texttt{OUT\_OF\_COVERAGE} $\mid$ 连续 $N_h$ 拍回到覆盖域 $\to$ 返回先前态。
+\end{enumerate}
+
+\textbf{锚龄超过 $N^\star_g$ 的三档处理}：(1) 最近 $w{=}5$ 拍残差均 $\le0.5\,\epsilon^{\mathrm{tol}}_g$ $\Rightarrow$ 安全重锚定（首选出口）；(2) 残差居中、未报警 $\Rightarrow$ 降级模式：阈值按误差界增长量通胀（第 11 节），标记“置信降级”，最多再运行 $N^\star_g/2$ 拍；(3) 超时或逼近阈值 $\Rightarrow$ 挂起保证、输出 \texttt{indeterminate}。\textbf{硬规则}：报警未决时严禁重锚定。
+
+\subsection{每拍伪代码}
+
+\begin{algorithm}[H]
+\caption{受保护在线监测（每拍 $k$）}
+\begin{algorithmic}[1]
+\State 采样入 \texttt{HistBuf}；组 $d^-_k$；$(z^E_k,\chi^E_k)\leftarrow\Enc(d^-_k)$
+\For{\texttt{AnchorRing} 中每个锚 $j$}
+  \State $\hat z_{k\mid s_j}\leftarrow\ZT(\hat z_{k-1\mid s_j},u_{k-1},\xi_{k-1};\chi^n_{k-1\mid s_j})$；$\hat y^n_{k\mid s_j}\leftarrow C_z\hat z_{k\mid s_j}$ 追加入该锚 \texttt{ProtHist}；$\chi^n_{k\mid s_j}\leftarrow\mathcal E^\chi_\vartheta(\hat d^{\,n}_{k\mid s_j})$；锚龄 ++
+\EndFor
+\State 用活动锚 $s^n$ 组装 $r^y_k,r^{\mathrm{dyn}}_k,r^{\mathrm{lg}}_k$、描述符 $\zeta_k$，计算 $T^{\mathrm{det}}_k$、$T^{\max}_k$、$\gamma^{\mathrm{dyn}}_k$（第 10--11 节）
+\State 覆盖域检查；域外 $\to$ \texttt{OUT\_OF\_COVERAGE}，跳到第 10 行
+\State \textbf{预警更新}；若本拍新触发：\texttt{CandQ.clear()}，冻结接收 \Comment{必须先于确认处理}
+\State \textbf{报警更新}：\texttt{AlarmWin} 推入超限位；m-of-n 判定
+\State \textbf{确认处理}：对 \texttt{CandQ} 中 $s+N_c=k$ 的候选，若预警未激活 $\to$ 确认入 \texttt{AnchorRing}
+\State \textbf{候选接收}：合法状态且无预警 $\to$ \texttt{CandQ.push}$(k,z^E_k)$；\texttt{RECOVERY} 按 \texttt{CleanCnt} 门控
+\State 换锚判定；状态转移 T1--T11；输出（状态、统计量、阈值、隔离信息）
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{无污染不变量（逐转移巡检）}
+
+\textbf{不变量 I}：任意时刻，每个锚 $j$ 的保护状态 $\hat z_{k\mid s_j}$ 仅是 (a) $z^E_{s_j}$（内容为 $u,y$ 至 $s_j{-}1$、$\xi$ 至 $s_j$，且经 $N_c$ 拍无预警考察），(b) 实现的记录输入 $\{u_t,\xi_t\}_{t<k}$，(c) 冻结模型参数的函数；锚后测量 $y_t$（$t\ge s_j$）无进入路径。
+
+巡检要点：T2/T9 初始化用已确认候选（命题 1 守护）；T4 传播只读 $(\hat z,u,\xi,\chi^n)$，而 $\chi^n$ 来自 \texttt{ProtHist}，其 $y$ 通道按构造只写入 $\hat y^n=C_z\hat z$；T5--T8 只改标志位或清队；确认判据 $T^{\mathrm{det}}_k$ 虽由测量算出，但只作\textbf{门控}不进入保护支路状态。唯一能把新信息注入保护支路的通道是“确认换锚”，而它被命题 1 守护。$u$ 反馈路径是设计选择而非泄漏：两支路同条件于同一实现 $u$ 序列，$e^z_{k\mid s}$ 度量“同指令下真实对象与正常模型的状态差”（任务书 5.5 问题 10 的回答）。
+
+%======================================================================
+\section{统一残差定义与精确传播（任务六）}
+%======================================================================
+
+\subsection{统一起点索引残差}
+
+\begin{equation}\label{eq:unified-res}
+e^z_{k\mid s}=z^E_k-\hat z_{k\mid s},\qquad
+\begin{cases}
+\text{训练：}s\text{ 随机采样},\ k=s+j,\ j\le N_{\max}\\
+\text{短期监测：}s=k-\ell_s\ \Rightarrow\ r^{\mathrm{sh}}_k=e^z_{k\mid k-\ell_s}\\
+\text{长期监测：}s=s^n_k\ \Rightarrow\ r^{\mathrm{lg}}_k=e^z_{k\mid s^n_k}
+\end{cases}
+\end{equation}
+\anno{$e^z\in\R^{m_z}$ $\mid$ 需锚点历史已满 $\mid$ 在线可算：是 $\mid$ 仅正常数据：是（模型与锚点机制）$\mid$ 性质：定义（严格）}
+
+同一数学对象三用，训练与在线共享同一自由递推 \eqref{eq:protected-rollout}，消除教师强制/自由递推的分布错配。
+
+\subsection{一步创新与上下文失配}
+
+\begin{equation}\label{eq:innovation}
+\nu^E_k=z^E_{k+1}-\ZT(z^E_k,u_k,\xi_k;\chi^E_k),\qquad
+\delta^\chi_{k\mid s}=\ZT(z^E_k,u_k,\xi_k;\chi^E_k)-\ZT(z^E_k,u_k,\xi_k;\chi^n_{k\mid s}).
+\end{equation}
+\anno{均 $\in\R^{m_z}$ $\mid$ $\nu^E$ 只用数据支路量；$\delta^\chi$ 需保护支路上下文 $\mid$ 在线可算：是（$\delta^\chi$ 为两次前向之差）$\mid$ 仅正常数据：是 $\mid$ 性质：定义（严格）}
+
+由于 $\chi$ 只经前提 $\rho$ 影响权重，$\delta^\chi_{k\mid s}=\sum_i[\omega_i(\rho^E_k)-\omega_i(\rho^n_{k\mid s})]\,v_i(z^E_k,u_k)$——上下文失配就是\textbf{规则权重失配}，这是 T–S 结构进入误差动力学的第一条显式通道。
+
+\subsection{定理 1（精确传播）——验证结论与修正表述}
+
+\begin{theorem}[统一残差的精确传播；已独立复核]\label{thm:prop}
+设 $\Prem\in C^1$（从而 $z\mapsto\ZT(z,u_k,\xi_k;\chi^n_{k\mid s})$ 在包含线段 $[\hat z_{k\mid s},z^E_k]$ 的开集上 $C^1$）。则
+\begin{equation}\label{eq:onestep}
+e^z_{k+1\mid s}=A_{k\mid s}\,e^z_{k\mid s}+\nu^E_k+\delta^\chi_{k\mid s},\qquad
+A_{k\mid s}=\int_0^1 J_z\ZT\big(\hat z_{k\mid s}+q\,e^z_{k\mid s},u_k,\xi_k;\chi^n_{k\mid s}\big)\,dq,
+\end{equation}
+\begin{equation}\label{eq:multistep}
+e^z_{k\mid s}=\Phi(k,s)\,e^z_{s\mid s}+\sum_{j=s}^{k-1}\Phi(k,j+1)\big(\nu^E_j+\delta^\chi_{j\mid s}\big)
+=\sum_{j=s}^{k-1}\Phi(k,j+1)\big(\nu^E_j+\delta^\chi_{j\mid s}\big),
+\end{equation}
+其中 $\Phi(k,k)=I$，$\Phi(k,j)=A_{k-1\mid s}\cdots A_{j\mid s}$，末式用 $e^z_{s\mid s}=0$（锚点初始化）。
+\end{theorem}
+\anno{$A_{k\mid s}\in\R^{m_z\times m_z}$ $\mid$ 条件：$C^1$（softmax 与二次得分 $C^\infty$，故等价于 $\Prem\in C^1$）$\mid$ 在线可算：恒等式本身在线成立；$A_{k\mid s}$ 数值上用求积近似 $\mid$ 仅正常数据：是 $\mid$ 性质：\textbf{严格定理}（精确恒等式，无近似）}
+
+\textbf{验证记录}（独立复核，全部通过）：(i) 三项 telescoping 分裂精确，上下文配对正确（$\nu^E$ 全用数据支路量；$\delta^\chi$ 两端状态同为 $z^E_k$ 仅换上下文；状态差项冻结 $\chi^n$）；(ii) 积分中值形式方向正确（$g(0)$ 在 $\hat z$、$g(1)$ 在 $z^E$，与 $e=z^E-\hat z$ 一致）；(iii) $\Phi$ 指标约定经 $k-s=1,2$ 显式归纳验证；(iv) 全程未对任何故障量微分。
+
+\begin{remark}[故障的隐式进入机制]\label{rem:fault-entry}
+执行器故障：真实输入为 $u_k+f^{\mathrm{act}}_k$ 而记录为 $u_k$，测量 $y$ 反映故障后演化，$\Rightarrow\nu^E$ 增大。过程故障：$f^{\mathrm{proc}}$ 扰动状态方程经 $y$ 进历史，$\Rightarrow\nu^E$ 增大。传感器故障：$f^{\mathrm{sen}}$ 直接污染 $d^-$ 中的 $y$ 并污染 $\chi^E_k$，而保护支路上下文保持“正常语境”，$\Rightarrow\delta^\chi$ 显著增大（且 $\nu^E$ 也增大）。这为第 9 节表格的传播特征提供机理依据。
+\end{remark}
+
+\begin{remark}[非马尔可夫性的诚实定位]\label{rem:nonmarkov}
+$\chi^n_{t\mid s}$ 依赖过去 $\ell_h$ 步预测输出，仅以 $\hat z$ 为状态的递推非马尔可夫。定理 1 作为逐点恒等式\textbf{仍然精确}（每步 $\chi^n$ 是已定义可计算的确定量，被冻结为参数）；但 $A_{k\mid s}$ 与 $\delta^\chi_{k\mid s}$ 轨迹依赖，后续把 \eqref{eq:onestep} 当作外生输入 LTV 系统做界，只能得到\textbf{充分性}结论（第 9 节据此降级表述）。等价的增广马尔可夫形式：$X_t=\col(\hat z_{t\mid s},\hat y^n_{t-\ell_h:t-1\mid s})\in\R^{m_z+\ell_hm_y}$，增广 Jacobian 为类块友矩阵（左上 $J_z\ZT$、右上 $J_\chi\ZT\cdot\partial\mathcal E^\chi_\vartheta/\partial Y$、左下末块行 $C_z$、右下幂零移位块）；主文采用显式上下文误差项路线（第 8 节引理 \ref{lem:context}），增广形式入附录。
+\end{remark}
+
+\subsection{数值验证协议（实现必做）}
+
+(A) 代数分裂检验：在训练后模型上逐步计算恒等式残差，float64 下须达 $10^{-14}$ 量级（关闭 TF32 等非确定算子）；(B) $A_{k\mid s}$ 用 Gauss--Legendre 求积 + autodiff 逐点 Jacobian，检验随节点数谱收敛；(C) 多步式与直接 $e^z_{k\mid s}$ 对拍；(D) \textbf{故障不变性检验}：注入任意故障后恒等式仍须机器精度成立（验证“故障仅经 $\nu^E,\delta^\chi$ 隐式进入”），随后确认故障下 $\|\nu^E\|$（执行器/过程）与 $\|\delta^\chi\|$（传感器尤甚）确实超出正常包络。
+
+%======================================================================
+\section{完整模糊 Koopman Jacobian（任务七）}
+%======================================================================
+
+\subsection{命题 2（完整 Jacobian）——验证结论与修正表述}
+
+\begin{proposition}[T--S 模糊 Koopman 映射的完整偏 Jacobian；已独立复核]\label{prop:jac}
+设 $M_i=M_i^\top\succ0$（对称性必须显式假设，实现用 $M_i=L_iL_i^\top+\epsilon I$ 参数化），$\Prem\in C^1$，$\chi$ 固定（偏 Jacobian）。记 $\varsigma^\nabla_i=\nabla_\rho\varsigma_i=-M_i(\rho-p_i)$，$\bar\varsigma^\nabla=\sum_i\omega_i\varsigma^\nabla_i$，$\bar v=\sum_i\omega_iv_i$。则
+\begin{equation}\label{eq:softmax-grad}
+\nabla_\rho\omega_i=\omega_i\big(\varsigma^\nabla_i-\bar\varsigma^\nabla\big),
+\end{equation}
+\begin{equation}\label{eq:full-jac}
+J_z\ZT=A_\omega+\Delta_\rho J_{\rho,z},\qquad
+J_u\ZT=B_\omega+\Delta_\rho J_{\rho,u},\qquad
+J_\xi\ZT=\Delta_\rho J_{\rho,\xi},
+\end{equation}
+\begin{equation}\label{eq:delta-rho}
+A_\omega=\sum_i\omega_iA_i,\quad B_\omega=\sum_i\omega_iB_i,\quad
+\Delta_\rho=\sum_i\omega_i(v_i-\bar v)(\varsigma^\nabla_i-\bar\varsigma^\nabla)^\top .
+\end{equation}
+\end{proposition}
+\anno{$\Delta_\rho\in\R^{m_z\times m_\rho}$，$\Delta_\rho J_{\rho,z}\in\R^{m_z\times m_z}$，$\Delta_\rho J_{\rho,u}\in\R^{m_z\times m_u}$ $\mid$ 条件：$M_i$ 对称 PD、$\Prem\in C^1$、$\chi$ 固定 $\mid$ 在线可算：是（见 \S8.3）$\mid$ 仅正常数据：是 $\mid$ 性质：\textbf{严格定理}}
+
+\textbf{验证记录}：(i) softmax 梯度 \eqref{eq:softmax-grad} 由对数求导直接得出；(ii) 中心化步骤依赖恒等式 $\sum_i\omega_i(\varsigma^\nabla_i-\bar\varsigma^\nabla)=0$，据此可把 $\sum_i\omega_iv_i(\cdot)^\top$ 换成 $\sum_i\omega_i(v_i-\bar v)(\cdot)^\top$；(iii) 全部维度一致；(iv) 数值验证（$m_z{=}7,m_u{=}3,m_\rho{=}5,N_{\mathrm{rule}}{=}6$）：解析 Jacobian 与中心差分吻合至 $10^{-10}$。(v) 老师稿未列 $J_\xi$，若 $\xi$ 进入前提则同型存在，补上。
+
+\subsection{分散度界与局部放大因子}
+
+\begin{proposition}[分散度界；已独立复核]\label{prop:disp}
+令 $\Sigma_v=\sum_i\omega_i(v_i-\bar v)(v_i-\bar v)^\top$，$\Sigma_\varsigma=\sum_i\omega_i(\varsigma^\nabla_i-\bar\varsigma^\nabla)(\varsigma^\nabla_i-\bar\varsigma^\nabla)^\top$。则
+\begin{equation}\label{eq:disp-bound}
+\norm{\Delta_\rho J_{\rho,z}}_2\le\sqrt{\lambda_{\max}(\Sigma_v)}\sqrt{\lambda_{\max}\big(J_{\rho,z}^\top\Sigma_\varsigma J_{\rho,z}\big)},
+\end{equation}
+输入版把 $J_{\rho,z}$ 换成 $J_{\rho,u}$。等价矩阵证明：$V_w=[\sqrt{\omega_i}(v_i-\bar v)]_i$，$S_w=[\sqrt{\omega_i}(\varsigma^\nabla_i-\bar\varsigma^\nabla)]_i$，则 $\Delta_\rho=V_wS_w^\top$，界即 $\norm{V_w}_2\norm{S_w^\top J_{\rho,z}}_2$。
+\end{proposition}
+\anno{$\Sigma_v\in\R^{m_z\times m_z}$，$\Sigma_\varsigma\in\R^{m_\rho\times m_\rho}$ $\mid$ 加权 Cauchy--Schwarz，权非负和一由 softmax 保证 $\mid$ 在线可算：是 $\mid$ 仅正常数据：是 $\mid$ 性质：\textbf{严格定理}；等号当且仅当值分散方向与得分梯度分散方向秩对齐}
+
+局部放大因子（统一记号为 $A_\omega$，修正老师稿 $A_{h,k}$ 笔误）：
+\begin{equation}\label{eq:Lk}
+L_k=\norm{A_{\omega,k}}_2+\sqrt{\lambda_{\max}(\Sigma_{v,k})}\sqrt{\lambda_{\max}\big(J_{\rho,z,k}^\top\Sigma_{\varsigma,k}J_{\rho,z,k}\big)}\ \ge\ \norm{J_z\ZT}_2 .
+\end{equation}
+\anno{$L_k\in\R_{\ge0}$ $\mid$ 作为固定 $\chi$ 偏 Jacobian 的一步上界：严格；取值点须覆盖线段/区域（第 9 节）$\mid$ 在线可算：是（幂迭代）$\mid$ 仅正常数据：是 $\mid$ 性质：一步上界为严格定理；直接作 rollout 总放大率则为启发式（须加上下文项，见引理 \ref{lem:context}）}
+
+\begin{remark}[模糊解释与松紧性]\label{rem:fuzzy-interp}
+第二项仅当三要素并存时显著：多规则同时激活、局部模型输出分歧、状态/输入方向改变相对权重。softmax 接近 one-hot 时 $\Sigma_v,\Sigma_\varsigma\to0$、$L_k\to\|A_\omega\|_2$（界紧）；多规则竞争区且分散方向不对齐时偏松（数值实验 200 次随机试验中比值中位数 0.997、最小 0.42）。由此
+$$\boxed{\ \text{局部矩阵稳定}\;\not\Rightarrow\;\text{完整模糊 Koopman 自由递推稳定}\ }$$
+且\textbf{实现陷阱}：把 $L_k$ 估为 $\max_i\|A_i\|_2$ 或 $\|A_\omega\|_2$ 会系统性低估（遗漏前提梯度项，softmax 竞争区附近该项可占主导）。
+\end{remark}
+
+\subsection{上下文灵敏度引理（新增，修补老师稿缺口）}
+
+\begin{lemma}[上下文误差项]\label{lem:context}
+在命题 \ref{prop:jac} 同条件下，
+\begin{equation}
+\norm{J_\chi\ZT}_2=\norm{\Delta_\rho J_{\rho,\chi}}_2\le\sqrt{\lambda_{\max}(\Sigma_v)}\sqrt{\lambda_{\max}\big(J_{\rho,\chi}^\top\Sigma_\varsigma J_{\rho,\chi}\big)},
+\end{equation}
+与 \eqref{eq:disp-bound} 完全同型。受保护支路中 $\chi^n_{t\mid s}$ 依赖过去 $\ell_h$ 步预测输出 $\hat y^n=C_z\hat z$，故总一步灵敏度含附加项，残差范数递推升级为 $\ell_h$ 阶时滞不等式
+\begin{equation}\label{eq:delay-recursion}
+\norm{e^z_{t+1\mid s}}\le L_t\norm{e^z_{t\mid s}}+c_\chi\sum_{j=1}^{\ell_h}\norm{e^z_{t-j\mid s}}+\epsilon'_t,\qquad
+c_\chi=\norm{\Delta_\rho J_{\rho,\chi}}_2\,\mathrm{Lip}(\mathcal E^\chi_\vartheta)\,\norm{C_z}_2,
+\end{equation}
+可用标准比较引理化为增广一阶系统给出充分收敛条件。
+\end{lemma}
+\anno{$c_\chi\in\R_{\ge0}$ $\mid$ 需 $\mathcal E^\chi_\vartheta$ 对 $\hat y$ 槽位的 Lipschitz 常数（谱范数积上界或数值估计）$\mid$ 在线可算：是 $\mid$ 仅正常数据：是 $\mid$ 性质：充分条件}
+
+这条引理回答任务书 7.3 问题 5：“显式加入上下文误差 vs 扩展状态”——主文选\textbf{显式上下文误差项}（复用 $\Delta_\rho$ 界、诚实标注偏 Jacobian、审稿可核），扩展状态形式入附录备用。
+
+\subsection{在线计算与验证（任务书 7.3 问题 8、10）}
+
+\textbf{解析装配 + 混合 autodiff}（优于整体 autodiff 约 $m_z/m_\rho$ 倍）：前向已有 $\rho,\omega_i,v_i$，依次算 $\varsigma^\nabla_i$（$2N_{\mathrm{rule}}m_\rho^2$ FLOP）、$A_\omega$（$2N_{\mathrm{rule}}m_z^2$）、$\Delta_\rho$（$2N_{\mathrm{rule}}m_zm_\rho$）；唯一需 autodiff 的是 $J_{\rho,z}$，对 $\Prem$ 做 $m_\rho$ 次反向 VJP。若只需 $L_k$，不显式成矩阵：对 $\Sigma_v$ 与 $x\mapsto J_{\rho,z}^\top\Sigma_\varsigma(J_{\rho,z}x)$ 各做 5--10 步幂迭代。
+
+\textbf{有限差分验证协议}：float64；小维全 Jacobian 逐元素对拍（中心差分，$h_j=10^{-6}(1+|z_j|)$，容差 $10^{-6}$）；步长扫描确认 V 形误差曲线；生产维度改 10--20 个随机方向 JVP 对拍；不变量单测：$\sum_i\omega_i=1$、$\sum_i\omega_i(\varsigma^\nabla_i-\bar\varsigma^\nabla)=0$、中心化与未中心化 $\Delta_\rho$ 相等（均机器精度）；近 one-hot 区单独测试（容差放宽至 $10^{-4}$，softmax 须减最大值实现防上溢）。
+
+%======================================================================
+\section{有限时间正常参考误差界（任务八）}
+%======================================================================
+
+\subsection{定理 2（修正表述）}
+
+独立复核发现老师稿的一个实质缺口：递推 $\|e_{k+1}\|\le L_k\|e_k\|+\epsilon_k$ 要求 $L_k$ 控制\textbf{线段平均} Jacobian $\|A_{k\mid s}\|_2$，而线段两端是 $\hat z_{k\mid s}$ 与 $z^E_k$；老师稿“沿受保护支路取 $L_k$”只覆盖一个端点，规则边界附近线段内部的 Jacobian 可显著更大。修正定义：
+\begin{equation}\label{eq:Lk-seg}
+L_k:=\sup_{z\in\mathrm{conv}\{\hat z_{k\mid s},\,z^E_k\}}\norm{J_z\ZT(z,u_k,\xi_k;\chi^n_{k\mid s})}_2
+\quad\text{或（可离线预估）}\quad
+L_g:=\sup_{z\in\mathrm{conv}(\Zn_g)}\norm{J_z\ZT}_2 .
+\end{equation}
+\anno{--- $\mid$ 条件：线段含于取界域（$\Zn$ 未必凸，取凸包）$\mid$ 在线可算：线段版用两端点+中点采样近似、区域版离线 $\mid$ 仅正常数据：是 $\mid$ 性质：修正后为严格上界要求；数值估计后为经验量}
+
+\begin{theorem}[有限时间正常自由递推界；修正版]\label{thm:horizon}
+设假设 \ref{as:domain} 成立、$L_k$ 按 \eqref{eq:Lk-seg} 取、正常强迫 $\|\nu^{E,n}_k+\delta^{\chi,n}_{k\mid s}\|_2\le\epsilon_k$、$e^z_{s\mid s}=0$。则
+\begin{equation}\label{eq:horizon-bound}
+\norm{e^{z,n}_{s+\ell\mid s}}_2\le S_\ell:=\sum_{j=0}^{\ell-1}\Big(\prod_{p=j+1}^{\ell-1}L_{s+p}\Big)\epsilon_{s+j},
+\end{equation}
+空积为 1。一致界 $L_k\le L$、$\epsilon_k\le\epsilon$ 下 $S_\ell\le\epsilon\sum_{i=0}^{\ell-1}L^i$（$L\ne1$ 时 $=\epsilon\frac{L^\ell-1}{L-1}$，$L=1$ 时 $=\ell\epsilon$；$L<1$、$L>1$ 两分段写法代数恒等，仅为呈现衰减/线性/发散三种行为）。
+\end{theorem}
+\anno{$S_\ell\in\R_{\ge0}$ $\mid$ 条件：\eqref{eq:Lk-seg} 的 $L_k$ + $\epsilon_k$ 包络假设 $\mid$ 在线可算：递推式 $\beta^z_{k+1\mid s}=L_k\beta^z_{k\mid s}+\epsilon_k$ 逐拍更新 $\mid$ 仅正常数据：是 $\mid$ 性质：求和形式（给定前提）为严格定理（归纳已逐项验证 $\ell=1,2,3$）；$\epsilon_k$ 由数据估计后整体降级为\textbf{高概率界}}
+
+\textbf{两条必须写入论文的诚实声明}：
+\begin{enumerate}
+\item $\delta^{\chi,n}_{k\mid s}$ 经预测历史反馈依赖过去误差（引理 \ref{lem:context} 的 $\ell_h$ 阶时滞项），把它并入常数包络 $\epsilon_k$ 是\textbf{附加充分性假设}，须在实验中用受保护回放经验校验（或改用 \eqref{eq:delay-recursion} 的严格时滞递推，常数更大）。
+\item $\epsilon_k$ 用统计包络估计后，定理表述应从确定界改为：\textit{在校准事件（概率 $\ge1-\delta$）成立的条件下，$\Pr\{\|e^{z,n}_{s+\ell\mid s}\|\le S_\ell,\ \forall\ell\le N\}\ge1-N\alpha$}（逐步违约并集界 + 平稳/块可交换假设）。正文措辞用 high-probability finite-horizon bound，不与确定界混写。
+\end{enumerate}
+
+\subsection{可靠预测长度（修正定义）}
+
+时变 $L_k$ 下 $S_N$ 非单调，且一致 $L<1$ 时可为 $+\infty$，故改\textbf{前缀式}定义：
+\begin{equation}\label{eq:Nstar}
+N^\star_g:=\max\big\{N:\ S_\ell\le\epsilon^{\mathrm{tol}}_g,\ \forall\,\ell\le N\big\}\in\mathbb N\cup\{\infty\}.
+\end{equation}
+\anno{--- $\mid$ 逐锚在线可递推判定 $\mid$ 仅正常数据：是 $\mid$ 性质：定义 + 经验参数 $\epsilon^{\mathrm{tol}}_g$}
+
+\textbf{跨区域问题}（老师稿未处理）：区域常数 $L_g,\epsilon_g$ 只在轨迹驻留区域 $g$ 时有效。三种修法（论文选其一并声明）：(a) 逐锚逐步用 $L_{g(p)},\epsilon_{g(p)}$（$g(p)$ 为保护支路第 $p$ 步预测区域，加线段外扩余量）——推荐，在线可行；(b) 保守法：用“从 $g$ 出发 $N$ 步内可达区域集合”上的最坏常数；(c) 附加驻留假设并在越界时立即失效保证（触发重锚定）。
+
+\subsection{\texorpdfstring{$\epsilon_k$}{epsilon\_k} 与 \texorpdfstring{$\epsilon^{\mathrm{tol}}_g$}{epsilon\^{}tol\_g} 的估计配方（任务书 8.3 逐条回答）}
+
+\begin{enumerate}
+\item \textbf{$\epsilon_k$ 分成两个成分分别估计}：$\nu^{E,n}$ 近平稳（一步残差，量级 $=$ 训练误差 $+$ 噪声），用区域条件包络 $\epsilon_\nu(\rho)$；$\delta^{\chi,n}$ 在 $h=k-s<\ell_h$ 时近零（缓冲区未换完）并随 $h$ 增长，用锚龄索引包络 $\epsilon_\delta(h)$。合成 $\epsilon_k\le\epsilon_\nu+\epsilon_\delta$，最终对 $\|\nu^E+\delta^\chi\|$ 联合再校准一次消除三角不等式保守性。$\delta^\chi$ 单独监测还有隔离价值（传感器故障主要抬升 $\delta^\chi$）。
+\item \textbf{估计器}：不用 $\max$（单点离群即毁界）；用区域内保序统计分位 $\epsilon_g=r_{(\lceil(n_g+1)(1-\alpha)\rceil)}$（conformal 秩规则，边际保证 $\Pr\{r\le\epsilon_g\}\ge1-\alpha$）；对校准抽样再要求置信 $1-\delta$ 时用 Clopper--Pearson 上界选秩。尾部样本稀少时用 POT/广义 Pareto 外推替代经验分位。离群正常样本：审查确认为传感尖峰才剔除，并报告剔除比例。
+\item \textbf{$\epsilon^{\mathrm{tol}}_g$ 锚定在检测阈值尺度}：$\epsilon^{\mathrm{tol}}_g=c\cdot\gamma$（白化单位下的检测阈值），$c\in[0.3,0.5]$——含义是“锚龄 $\le N^\star_g$ 内正常漂移最多消耗阈值的 $c$ 倍，其余为故障灵敏度余量”；$c$ 在验证集扫描并报告。
+\item \textbf{区域划分}：统计估计用软加权（贡献权 $\omega_g(\rho_k)$，有效样本数 $n^{\mathrm{eff}}_g$，加权分位数），在线查询用硬 $\arg\max$，边界处取相邻区域较保守常数兜底。最小有效样本 $n^{\mathrm{eff}}_{\min}\approx300\sim500$，不足则按前提原型 Mahalanobis 距离最近邻合并统计量（不合并规则本身），长尾区域回退全局常数。报告每区域 $(n^{\mathrm{eff}}_g,\epsilon_g,L_g,N^\star_g)$ 表。
+\item \textbf{协方差度量范数值得做}：取全局 $P=(\Sigma+\lambda I)^{-1}$（正常残差协方差），$\|e\|_P$ 与检测统计量同度量、界更紧；诱导范数 $\|J\|_P=\|P^{1/2}JP^{-1/2}\|_2$ 次可乘，全部推导逐字照搬。陷阱：分区域 $P_g$ 会在跨区域乘积处引入等价常数、界变松——误差界用单一全局 $P$，检测阈值仍可分区域标定，两层解耦。
+\item \textbf{覆盖率验证实验}：留出正常序列滑动取锚，滚动 $\ell=1..N_{\max}$ 记录实际误差（与界同范数）；图 1：实际误差带 vs $S_\ell$ 曲线（分区域分面板）；图 2：经验覆盖率 vs 名义 $1-\ell\alpha$，标出 $N^\star_g$；必做消融：(a) $L$ 取“沿保护支路” vs “区域上确界”两种估法的覆盖率对比（量化老师稿缺口的实际大小）；(b) 中途跨区域锚点单独成组，暴露 per-region 定义的失效程度。
+\end{enumerate}
+
+%======================================================================
+\section{全维联合多尺度检测统计量（任务九）}
+%======================================================================
+
+\subsection{三类互补残差与联合向量}
+
+\begin{equation}\label{eq:residual-blocks}
+r^y_k=y_k-C_zz^E_k,\qquad
+r^{\mathrm{dyn}}_{k,N_{\mathrm{dyn}}}=\col\big(\nu^E_{k-N_{\mathrm{dyn}}+1},\dots,\nu^E_k\big),\qquad
+r^{\mathrm{lg}}_k=e^z_{k\mid s^n_k},
+\end{equation}
+\begin{equation}\label{eq:joint}
+R_k=\col\big(r^y_k,\,r^{\mathrm{dyn}}_{k,N_{\mathrm{dyn}}},\,r^{\mathrm{lg}}_k\big)\in\R^{m_R},\qquad m_R=m_y+(N_{\mathrm{dyn}}+1)m_z .
+\end{equation}
+\anno{维度如式 $\mid$ $z^E_k$ 严格因果使 $r^y$ 对当期传感器故障直接敏感 $\mid$ 在线可算：是 $\mid$ 仅正常数据：是 $\mid$ 性质：定义}
+
+典型传播特征（\textbf{仅为机理预期，不是分类规则}；机理依据见注 \ref{rem:fault-entry}）：传感器故障 $r^y$ 当拍响应、$r^{\mathrm{dyn}}$ 经历史延迟响应、$r^{\mathrm{lg}}$ 延迟累积；执行器故障视相对阶经 $r^y$、较早出现输入兼容动态、$r^{\mathrm{lg}}$ 持续累积；过程故障经输出通道传播、一般动态方向、持续累积。
+
+\subsection{命题 3（投影盲区）——验证结论与分裂表述}
+
+\begin{proposition}[严格降维的不可见方向；分裂表述]\label{prop:invisible}
+(i)【分布无关、严格】任意秩 $m_p<m_R$ 的投影 $\Pi\in\R^{m_p\times m_R}$，$\dim\ker\Pi\ge m_R-m_p\ge1$；取均值偏移 $\mu\in\ker\Pi\setminus\{0\}$，则投影后正常与异常分布对\textbf{任何}噪声律完全相同。
+(ii)【理想化模型下严格】在 $H_0:\tilde R\sim\mathcal N(0,I)$ vs $H_1:\tilde R\sim\mathcal N(\mu,I)$（$\mu$ 未知）下，GLR $=\exp(\tfrac12\|\tilde R\|^2)$，对 $\|\tilde R\|_2^2$ 严格单调（且为正交群不变意义下 UMP 不变检验）。
+\end{proposition}
+\anno{--- $\mid$ (ii) 假设异常仅移动均值、保持单位协方差且高斯——理想化；协方差型/非高斯故障下 $\|\tilde R\|^2$ 仍敏感但无最优性 $\mid$ 在线可算：--- $\mid$ 仅正常数据：--- $\mid$ 性质：(i) 严格定理（比老师稿更强：无需高斯性）；(ii) 理想化模型下严格定理}
+
+结论：故障方向未知时检测阶段不做秩亏投影；只允许中心化、满秩白化、可逆变换、条件归一化、多尺度堆叠。投影仅在告警后用于机制解释（第 12--13 节）。
+
+\subsection{条件矩、白化与瞬时统计量}
+
+受保护运行描述符（全部来自保护支路与记录输入，不引入测量泄漏）：
+\begin{equation}\label{eq:descriptor}
+\zeta_k=\col\big(\omega^n_k,\ \bar\omega^n_{k,N_\zeta},\ u_{k-N_\zeta:k},\ \Delta u_{k-N_\zeta:k},\ \xi_{k-N_\zeta:k},\ \ell^{\mathrm{ref}}_k\big).
+\end{equation}
+条件矩 $\mu_R(\zeta_k),\Sigma_R(\zeta_k)$ 用模糊区域混合估计（混合协方差含单元间均值差项，law of total covariance 的严格恒等式；把权重当混合概率是启发式建模选择）：
+\begin{equation}\label{eq:mixture}
+\Sigma_R=\sum_g w_g\big[\Sigma_g+(\mu_g-\mu_R)(\mu_g-\mu_R)^\top\big]+\epsilon_\Sigma I,\qquad
+W_k=\Sigma_R(\zeta_k)^{-1/2},
+\end{equation}
+\begin{equation}\label{eq:Tdet}
+T^{\mathrm{det}}_k=\norm{W_k\big[R_k-\mu_R(\zeta_k)\big]}_2 .
+\end{equation}
+\anno{$W_k\in\R^{m_R\times m_R}$ 满秩 $\mid$ 条件矩与分位数须在\textbf{不相交}正常段上分别估计并冻结（插入式条件覆盖只能近似，Lei--Wasserman 不可能性）$\mid$ 在线可算：是（区域矩预计算+权重混合）$\mid$ 仅正常数据：是 $\mid$ 性质：混合公式严格恒等式；岭 $\epsilon_\Sigma$ 与收缩为设计正则}
+
+估计器决定（任务书 11.4 问题 1--4）：默认\textbf{模糊分区软加权样本矩 + Ledoit--Wolf 收缩}（$\hat\Sigma_{\mathrm{shr}}=(1-\lambda)\hat\Sigma+\lambda\frac{\mathrm{tr}\hat\Sigma}{m_R}I$ + 岭下限 + 特征值下限 $\lambda_{\min}\ge10^{-4}\lambda_{\max}$ 以限制 $\|W_k\|_2$）；$n^{\mathrm{eff}}_g\ge10m_R$ 直接估计、$3m_R\sim10m_R$ 加大收缩、$<3m_R$ 回退核回归均值 + 全局协方差；小网络仅在样本 $\gtrsim5\times10^4$ 且 $m_R\lesssim30$ 时考虑。
+
+\subsection{多尺度堆叠与最大超额统计量}
+
+窗口集推荐二进制式 $\mathcal N_{\mathrm{win}}=\{1,4,16,64\}$（3--4 个窗控制校准效率），且必须按参考年龄截断 $\mathcal N_{\mathrm{win}}(\ell^{\mathrm{ref}}_k)=\{N\le\ell^{\mathrm{ref}}_k\}$，校准与在线使用同一截断族（否则族保证破裂）。
+\begin{equation}\label{eq:Tmax}
+T^{\max}_k=\max_{N\in\mathcal N_{\mathrm{win}}(\ell^{\mathrm{ref}}_k)}
+\Big[\norm{W^{\mathrm{stk}}_{k,N}\big(R^{\mathrm{stk}}_{k,N}-\mu_{k,N}\big)}_2-\Gamma^{\mathrm{det}}_{k,N}\Big],
+\end{equation}
+其中 $R^{\mathrm{stk}}_{k,N}=\col(R_{k-N+1},\dots,R_k)$，$W^{\mathrm{stk}}$ 保留跨时刻协方差，$\Gamma^{\mathrm{det}}_{k,N}$ 为堆叠确定性半径（第 11 节）。$T^{\max}$ 是单一标量，对它做\textbf{一次}分位校准即控制逐时刻族错误率——成立条件是 $T^{\max}$ 得分的块级可交换性（\S11.5）。
+\anno{--- $\mid$ 窗口重叠不破坏保证（max 已聚合）$\mid$ 在线可算：是（滑动缓冲）$\mid$ 仅正常数据：是 $\mid$ 性质：给定块可交换性的严格保证；窗口集为经验设计}
+
+条件创新形式（老师稿附录 B，已复核）：$\Sigma=LDL^\top$ 块 Cholesky 给出顺序线性 MMSE 新息，平方和恒等于全 Mahalanobis 统计量——代数恒等式无条件成立（需 $\Sigma\succ0$，由岭保证）；“新息 $=$ 条件期望残差”的概率解释需高斯性限定。
+
+%======================================================================
+\section{动态阈值推导（任务十）}
+%======================================================================
+
+\subsection{结构：确定性传播项 + 随机校准项}
+
+\begin{equation}\label{eq:dyn-threshold}
+\boxed{\ \gamma^{\mathrm{dyn}}_k=\gamma^{\mathrm{det}}_k+\gamma^{\mathrm{cal}}_{g_k,\ell^{\mathrm{ref}}_k,1-\alpha}\ }
+\end{equation}
+确定性部分由正常残差动力学传播生成（这是“动态阈值”一词的资格来源，区别于滚动经验分位）；随机部分由独立正常校准块的分位数承担。
+
+\subsection{确定性误差半径}
+
+从锚点不确定度 $\beta^z_{s\mid s}=\bar e_s$ 出发递推（$L_k$ 按 \eqref{eq:Lk-seg} 取，含前提梯度项）：
+\begin{equation}\label{eq:radius}
+\beta^z_{k+1\mid s}=L_k\beta^z_{k\mid s}+\bar\epsilon^z_k,\qquad
+\beta^y_k=\bar\epsilon^y_k,\qquad
+\beta^{\mathrm{dyn}}_{k}=\Big(\sum_{j=k-N_{\mathrm{dyn}}+1}^{k}(\bar\epsilon^{\mathrm{dyn}}_j)^2\Big)^{1/2},\qquad
+\beta^{\mathrm{lg}}_k=\beta^z_{k\mid s^n_k},
+\end{equation}
+\begin{equation}\label{eq:gamma-det}
+\beta^R_k=\big[(\beta^y_k)^2+(\beta^{\mathrm{dyn}}_k)^2+(\beta^{\mathrm{lg}}_k)^2\big]^{1/2},\quad
+\gamma^{\mathrm{det}}_k=\norm{W_k}_2\,\beta^R_k,\quad
+\Gamma^{\mathrm{det}}_{k,N}=\norm{W^{\mathrm{stk}}_{k,N}}_2\Big(\sum_{j=k-N+1}^k(\beta^R_j)^2\Big)^{1/2}.
+\end{equation}
+\anno{均 $\R_{\ge0}$ $\mid$ $\beta^{\mathrm{dyn}}$ 用\textbf{根和方}（堆叠块欧氏范数恒等式 $\|\col(r_j)\|^2=\sum_j\|r_j\|^2$；老师稿“RMS”措辞会差 $\sqrt{N_{\mathrm{dyn}}}$ 因子，已修正）$\mid$ 在线可算：是（逐拍递推）$\mid$ 仅正常数据：是 $\mid$ 性质：给定包络与 $L_k$ 证书的充分界；$\|W\|_2\beta^R$ 为球最坏情形，$\Sigma_R$ 病态时保守——可选分块椭球版 $\gamma^{\mathrm{det}}=\big(\sum_b\|W^{(b)}_k\|_2^2\beta_b^2\big)^{1/2}$，不劣于且通常更紧}
+
+阈值随任务书 11.3 所列全部因素变化的机制：$u,\Delta u,\xi$ 经 $\zeta_k$ 进入条件矩；规则权重与重叠经 $\omega^n_k$（描述符）与 $L_k$（放大因子）双路进入；局部模型差异经 $\Sigma_v$；Attention 上下文经 $c_\chi$ 包络；参考年龄经 $\beta^{\mathrm{lg}}$ 递推与 Mondrian 年龄组；覆盖范围经 OUT\_OF\_COVERAGE 判据。
+
+\subsection{推论 1 的关键修正：校准可观测超额得分}\label{sec:cor1-fix}
+
+\textbf{独立复核发现的 critical 缺口}：老师稿要求校准 $\|W_k\varepsilon^R_k\|_2$，但随机剩余 $\varepsilon^R_k=(R^n_k-\mu_R)-r^{R,\mathrm{det}}_k$ 中 $r^{R,\mathrm{det}}_k$ 只知范数界、不可观测——推论 1 按原文\textbf{无法实现}。修正（单边论证，反而更干净）：
+
+\begin{corollary}[逐点无故障阈值保证；修正版]\label{cor:coverage}
+在保留正常校准块上计算\textbf{可观测}超额得分
+\begin{equation}\label{eq:excess-score}
+s_k=\max\big(0,\ T^{\mathrm{det}}_k-\gamma^{\mathrm{det}}_k\big),
+\end{equation}
+在模糊区域 $g$ × 参考年龄组 $\ell$ 内取分位 $\gamma^{\mathrm{cal}}_{g,\ell,1-\alpha}=s_{(\lceil(N^{\mathrm{cal}}_{g,\ell}+1)(1-\alpha)\rceil)}$（秩超界取 $+\infty$）。因 $q\ge0$ 时事件 $\{s_k\le q\}$ 与 $\{T^{\mathrm{det}}_k\le\gamma^{\mathrm{det}}_k+q\}$ 恒等，在块可交换假设（\ref{as:exch}）下
+\begin{equation}
+\Pr\big\{T^{\mathrm{det}}_k\le\gamma^{\mathrm{dyn}}_k\big\}\ge1-\alpha .
+\end{equation}
+\end{corollary}
+\anno{--- $\mid$ 条件：矩估计段与校准段不相交且冻结；块可交换性 $\mid$ 在线可算：是 $\mid$ 仅正常数据：是 $\mid$ 性质：给定假设下严格（分裂 conformal 秩性质，非原创成分照老师稿引 Vovk 等）；假设 2 的包络此后仅用于\textbf{跨工况归一化}超额得分（提高可交换性），不再承担覆盖证明}
+
+$T^{\max}$ 的族保证同法：对 $T^{\max}_k$（本身已是超额形式）做同一分位校准。
+
+\subsection{时间相关性、Mondrian 小样本与 FAR 预算（任务书 11.4 问题 5--9）}\label{sec:time-corr}
+
+\begin{enumerate}
+\item \textbf{可交换性修复}：闭环残差序列自相关，逐时刻分数不可交换。主修复：\textbf{不重叠块 + 每块取最大分数}校准（与“独立正常块”及 $T^{\max}$ 结构直接吻合）；理论背书引 beyond-exchangeability（覆盖缺口由分布漂移的 TV 距离控制）；块长取残差经验混合时间以上。
+\item \textbf{Mondrian 小样本}：单元 $N^{\mathrm{cal}}_{g,\ell}<\lceil1/\alpha\rceil-1$ 时分位为 $+\infty$（永不报警的空洞保证）。强制最小单元样本（$\alpha=0.5\%$ 时 $N\ge199$），不足则按 $\zeta$ 近邻合并单元或回退全局无条件分位，\textbf{报告合并了哪些单元}。
+\item \textbf{预警/报警显著性}：$\alpha_{\mathrm{warn}}=2\%$（单拍即预警但不隔离），$\alpha_{\mathrm{alarm}}=0.2\%$ + m-of-n 持续规则。
+\item \textbf{运行长度预算}：块近独立近似下 $\mathrm{ARL}_0\approx1/\alpha_{\mathrm{eff}}$；时域 $H$ 内整段误报率 $\mathrm{FAR}_H\approx H\alpha_{\mathrm{eff}}$，给定目标反解 $\alpha_{\mathrm{eff}}$；$K$ 连续超限规则下 $\mathrm{ARL}_0\approx\alpha^{-K}$。自相关使近似偏移，最终以留出正常长序列上的\textbf{经验 ARL} 验证微调。
+\item \textbf{工况外拒绝}：对 $\zeta_k$ 建第二个仅正常数据的共形检验（k 近邻距离或马氏距离为得分，$1-\alpha_{\mathrm{cov}}$ 分位为覆盖边界），叠加权重塌缩/年龄超界/空单元三判据；触发则输出 \texttt{OUT\_OF\_COVERAGE}：不宣称有保证的判定，转全局保守阈值备份，该时段单独报告并从 FAR 统计中剔除或单列。
+\item \textbf{动态 vs 固定阈值的验证义务}（任务书 11.4 问题 10）：消融 A7 直接回答；预期收益在工况切换与大 $\Delta u$ 时段（固定阈值在这些时段要么误报要么为压误报而普遍钝化）。
+\end{enumerate}
+
+%======================================================================
+\section{传感器通道隔离（任务十二·上）}
+%======================================================================
+
+\subsection{屏蔽预测机制}
+
+共享掩码条件编码器（单一编码器 + 掩码嵌入，\textbf{不}用每通道独立编码器）：
+\begin{equation}\label{eq:masked-enc}
+(z^{E,\Lambda}_k,\chi^{E,\Lambda}_k)=\Enc(d^-_k,\Lambda),\qquad
+r^{\mathrm{sen}}_{j,k}=y_{j,k}-\big[C_zz^{E,-j}_k\big]_j .
+\end{equation}
+\anno{$r^{\mathrm{sen}}_{j,k}\in\R$ $\mid$ 屏蔽实现：通道 token 分量置零 + 掩码指示拼接；归一化统计按通道独立预计算（防经联合统计泄漏）$\mid$ 在线可算：告警后按通道各一次前向 $\mid$ 仅正常数据：是 $\mid$ 性质：经验设计 + 启发式判决（配必要拒识）}
+
+\textbf{掩码训练分布}（任务书 13 屏蔽训练问题）：概率 $p_0\approx0.5$ 全通（保护主任务）、$p_1\approx0.3$ 均匀单通道屏蔽（与在线一致）、$p_2\approx0.2$ 每通道独立 Bernoulli(0.15) 多通道屏蔽（组合鲁棒性）；屏蔽通道的重构损失加权；训练后核对全通性能退化在几个百分点内，否则调低 $p_1+p_2$。
+
+\subsection{泄漏路径与早期窗口限制（老师稿未讨论，必须写入）}
+
+$\Lambda^{-j}$ 只切断 $y_j$ 历史进入编码器的\textbf{直接}路径。闭环中控制器依赖 $y_j$，故障后的 $y_j$ 信息经 $u_k$ 重新进入 $d^-_k$。因此传感器层统计量只在告警后\textbf{早期窗口} $[s_a,s_a+N_s]$（$N_s\approx1\sim2$ 个回路时间常数）内计算与判读；同时要求 $\xi$ 与归一化流程不含 $y_j$ 的函数。
+
+\subsection{通道冗余判据与判决}
+
+正常校准段上估计每通道可预测性指数与屏蔽残差尺度：
+\begin{equation}\label{eq:PI}
+\mathrm{PI}_j=1-\frac{\mathrm{MSE}^{\mathrm{mask}}_j}{\mathrm{Var}(y_j)},\qquad \sigma^{\mathrm{mask}}_j .
+\end{equation}
+$\mathrm{PI}_j<\mathrm{PI}_{\min}$（建议 0.5）的通道\textbf{先验}标记为冗余不足，其异常一律输出 \texttt{Sensor-unresolved}。
+
+判决用两个统计量（均在校准段以与在线完全相同的流水线取 $1-\alpha_{\mathrm{iso}}$ 分位，$\alpha_{\mathrm{iso}}=0.01$）：
+\begin{itemize}
+\item \textbf{屏蔽残差}：$S_j=\mathrm{med}_{k\in[s_a,s_a+N_s]}\,|r^{\mathrm{sen}}_{j,k}|/\sigma^{\mathrm{mask}}_j$；
+\item \textbf{豁免检验}（最强证据，新增设计）：用 $\Lambda^{-j}$ 重算检测统计量，若屏蔽通道 $j$ 后统计量回落到其（按掩码单独校准的）正常阈值以下而全通道版报警，则支持 Sensor-$j$——它同时利用了“其余通道仍一致”的冗余前提。
+\end{itemize}
+恰有一个 $j$ 同时满足“$S_j$ 超阈 + 豁免成立 + $\mathrm{PI}_j\ge\mathrm{PI}_{\min}$” $\to$ \texttt{Sensor-j}；最大 $S_j$ 通道冗余不足 $\to$ \texttt{Sensor-unresolved}；多通道同超且互相豁免失败 $\to$ 进入第 13 节并保留 \texttt{Mixed} 候选；全部正常 $\to$ 直接进入第 13 节。
+
+%======================================================================
+\section{执行器兼容 / 过程侧分解（任务十二·下）}
+%======================================================================
+
+\subsection{关键修正：残差与响应矩阵的一致配对}\label{sec:pairing}
+
+\textbf{独立复核发现的 critical 错位}：老师稿把堆叠一步创新 $r^{\mathrm{dyn}}$ 投影到 $\Phi^z$ 加权的下块三角 $B^{\mathrm{resp}}$ 列空间。但一步创新每步在测量编码状态处\textbf{重新锚定}，过去故障影响被 $z^E_t$ 吸收：执行器故障下
+\begin{equation}\label{eq:innov-response}
+\nu^E_t\approx B^u_t f^{\mathrm{act}}_t+\underbrace{\delta^E_{t+1}-A^z_t\delta^E_t}_{\text{编码器扰动项}}+\text{h.o.t.},
+\end{equation}
+故堆叠创新的响应矩阵是\textbf{块对角} $\blkdiag(B^u_{t_0},\dots,B^u_{t_0+N_i-1})$，不含状态转移。$\Phi^z$ 加权矩阵对应的对象是\textbf{堆叠受保护多步残差}：
+\begin{equation}\label{eq:protres-response}
+e^z_{t_0+l\mid t_0}\approx\sum_{j=0}^{l-1}\Phi^z(t_0{+}l,\,t_0{+}j{+}1)\,B^u_{t_0+j}\,f^{\mathrm{act}}_{t_0+j}+O(\|\delta^E\|),
+\end{equation}
+因为保护支路从锚点自由传播、从不重新锚定。两者仅 $N_i=1$ 时一致。\textbf{一致配对（本设计采用）}：
+\begin{equation}\label{eq:iso-pairing}
+r^{\mathrm{iso}}_k=\col\big(e^z_{t_0+1\mid t_0},\dots,e^z_{t_0+N_i\mid t_0}\big)
+\ \longleftrightarrow\
+\big[B^{\mathrm{resp}}_{k,N_i}\big]_{lj'}=\begin{cases}\Phi^z(t_0{+}l,t_0{+}j')\,B^u_{t_0+j'-1},&j'\le l\\ 0,&j'>l\end{cases}
+\end{equation}
+（统一 1 基索引 $j'=j+1$；矩阵为\textbf{含非零对角块的下块三角}，修正老师稿“严格下三角”措辞）。推荐此配对：故障能量沿 $\Phi^z$ 累积，信噪比更高，且与受保护参考哲学一致。块对角配对（$r^{\mathrm{dyn}}\leftrightarrow\blkdiag\{B^u_t\}$）作低成本在线备份与交叉验证。
+\anno{$B^{\mathrm{resp}}\in\R^{N_im_z\times N_im_u}$，$r^{\mathrm{iso}}\in\R^{N_im_z}$ $\mid$ 线性化沿保护轨迹；编码器扰动项 $\delta^E$ 并入 $\varepsilon^{\mathrm{iso}}$ 须声明（其与 $f^{\mathrm{act}}$ 相关，命题 4 的恢复只到该相关项精度）$\mid$ 在线可算：JVP 装配（见 \S13.4）$\mid$ 仅正常数据：是 $\mid$ 性质：LTV 线性化意义下严格；配对修正后自洽}
+
+\subsection{白化一致性（老师稿未指明，必须钉死）}
+
+投影几何依赖内积度量：取正常校准段上 $r^{\mathrm{iso}}$ 的协方差 $\Sigma_r$（加岭），令 $W^{\mathrm{iso}}=\Sigma_r^{-1/2}$，\textbf{同一映射}作用于两者：$\tilde r=W^{\mathrm{iso}}r^{\mathrm{iso}}$，$\tilde B=W^{\mathrm{iso}}B^{\mathrm{resp}}$。原坐标下等价于 $\Sigma_r^{-1}$ 斜投影。此时且仅此时 $T^{\mathrm{act}}+T^{\mathrm{proc}}=\|\tilde r\|^2$（勾股）成立、正常时 $T^{\mathrm{proc}}$ 近似 $\chi^2_{N_im_z-\rank\tilde B}$ 可校准。
+
+\subsection{命题 4（分解与不可辨识边界）——分裂表述}
+
+\begin{equation}\label{eq:projections}
+\Pi_{u,k}=\tilde B(\tilde B^\top\tilde B)^\dagger\tilde B^\top,\quad
+T^{\mathrm{act}}_k=\norm{\Pi_{u,k}\tilde r}_2^2,\quad
+T^{\mathrm{proc}}_k=\norm{(I-\Pi_{u,k})\tilde r}_2^2,\quad
+\hat f^{\mathrm{act,eq}}_{k,N_i}=(\tilde B^\top\tilde B)^\dagger\tilde B^\top\tilde r .
+\end{equation}
+
+\begin{proposition}[执行器/过程分解边界；分裂表述]\label{prop:sep}
+设 $\tilde r=\tilde Bf^{\mathrm{act}}+f^{\mathrm{proc}}+\varepsilon^{\mathrm{iso}}$，$f^{\mathrm{proc}}\perp\Range(\tilde B)$（白化坐标）。
+(a)【任意秩成立】$\Pi_{u,k}$ 恒为 $\Range(\tilde B)$ 上的正交投影（SVD：$U_rU_r^\top$），能量分解 $T^{\mathrm{act}}+T^{\mathrm{proc}}=\|\tilde r\|^2$ 与 $\Pi f^{\mathrm{proc}}=0$ 良定义。
+(b)【需满列秩】$\hat f^{\mathrm{act,eq}}$ 唯一；秩亏时退化为最小范数解并触发 \texttt{Nonunique}。
+(c)【不可辨识】$f^{\mathrm{proc}}$ 落入 $\Range(\tilde B)$ 的成分可写成 $\tilde Bf^{\mathrm{eq}}$ 而被吸收进执行器解释，两种物理解释不可区分——严格推论，非算法缺陷。
+\end{proposition}
+\anno{--- $\mid$ 正交性假设 $f^{\mathrm{proc}}\perp\Range(\tilde B)$ 不可验证，属结构性理想化（充分条件）$\mid$ 在线可算：是 $\mid$ 仅正常数据：是 $\mid$ 性质：(a)(b) 白化坐标下严格定理；(c) 严格不可辨识声明}
+
+\subsection{执行器通道可分裕度（秩条件的裕度化）}
+
+老师稿秩条件 $\rank[\tilde B_j,\tilde B_{-j}]>\rank(\tilde B_{-j})$ 作为存在性命题严格（$\iff\Range(\tilde B_j)\not\subseteq\Range(\tilde B_{-j})$），但浮点秩几乎总满、二元且近奇异时无预警。裕度版本：令 $P_{-j}$ 为 $\Range(\tilde B_{-j})$ 正交投影、$\tilde U_j$ 为 $\Range(\tilde B_j)$ 标准正交基，则 $\sigma_i\big((I-P_{-j})\tilde U_j\big)=\sin\theta_i$（主角正弦）。实用判据：
+\begin{equation}\label{eq:margin}
+\gamma_j=\frac{\norm{(I-P_{-j})\tilde B_j\hat w_j}}{\norm{\tilde B_j\hat w_j}}\ \ge\ \gamma_{\min}\ (\approx0.2)
+\quad\text{且}\quad
+\norm{(I-P_{-j})\tilde B_j\hat w_j}\ \ge\ 3\times\text{正常噪声底},
+\end{equation}
+其中 $\hat w_j$ 为通道内最小二乘估计方向。低于裕度报 \texttt{Nonunique}。同时报告 $\mathrm{cond}(\tilde B)$，$\sigma_{\min}/\sigma_{\max}<10^{-3}$ 视为数值秩亏。
+\anno{--- $\mid$ 主角/受限最小奇异值刻画 $\mid$ 在线可算：小规模 SVD $\mid$ 仅正常数据：是 $\mid$ 性质：裕度阈值为经验设计；主角关系为严格}
+
+\subsection{输出类别、判决流程与成本}
+
+\textbf{七类输出}：\texttt{Sensor-j} / \texttt{Sensor-unresolved} / \texttt{Actuator-compatible(-j)} / \texttt{Process-side} / \texttt{Mixed} / \texttt{Nonunique} / \texttt{Out-of-coverage}。
+
+\textbf{分层判决}：第 0 层覆盖检查（覆盖域外终止隔离，只维持检测告警）→ 第 1 层传感器层（第 12 节，早期窗口）→ 第 2 层执行器/过程分解：$T^{\mathrm{act}},T^{\mathrm{proc}}$ 各自与\textbf{自身正常校准分位}比较（不用卡方表——非高斯与线性化误差），通道级 $T^{\mathrm{act}}_j$、裕度 $\gamma_j$ 判定。类别规则：\texttt{Actuator-compatible(-j)}＝$T^{\mathrm{act}}$ 超阈、$T^{\mathrm{proc}}$ 未超、通道 $j$ 能量比其余显著（$>3\times$）且裕度合格；\texttt{Process-side}＝$T^{\mathrm{proc}}$ 超阈、$T^{\mathrm{act}}$ 未超；\texttt{Mixed}＝两能量各自显著（加性共存）；\texttt{Nonunique}＝指认失败（裕度不足 / 多通道统计等价 / 数值秩亏）——\texttt{Mixed} 与 \texttt{Nonunique} 同时成立时\textbf{优先报 \texttt{Nonunique}}。
+
+\textbf{全部隔离统计量都在正常校准段以与在线完全相同流水线（含锚点选择、$N_i$、白化）滑窗校准}——老师稿缺此环节，直接用检测阈值或固定卡方分位会错标（第 16 节问题 P6-8）。
+
+\textbf{$N_i$ 选择}：三约束取交——SNR（大 $N_i$ 沿 $\Phi^z$ 累积能量）、线性化/漂移（校准段上保护支路 $N_i$ 步漂移中位数 $<$ 检测阈值 30\%，硬上限）、$\mathrm{cond}(\tilde B)$ 稳定；典型 $N_i\in[5,20]$，验证集网格选定后冻结。
+
+\textbf{$B^{\mathrm{resp}}$ 装配成本}（JVP，自动含 $B_\omega+\Delta_\rho J_{\rho,u}$ 两项）：注入步对 $u$ 的 $m_u$ 个单位切向量 JVP 得 $B^u$ 列，再沿保护支路逐步传播；总计 $\approx m_uN_i(N_i{+}1)/2$ 次 JVP（$m_u{=}3,N_i{=}10$ 时约 165 次前向，batch 后 $\sim$55 次批量前向）；滑窗增量每步只补 $m_uN_i$ 次。仅告警后运行，在线可行。
+
+\textbf{报告措辞}（强制）：“等效输入偏差 $\hat f^{\mathrm{act,eq}}$：白化度量下最能解释残差的输入空间偏差，与执行器通道 $j$ 特征兼容”，并附标准附注“落在 $\Range(\tilde B)$ 内的过程侧扰动与执行器偏差在本方法中不可区分（命题 4），本结果不构成对物理执行器故障的确认”；拒识时报告触发的具体拒识条件（覆盖不足/冗余不足/裕度不足/多解）。
+
+%======================================================================
+\section{可检测性与可辨识性边界（任务一延伸）}
+%======================================================================
+
+\begin{enumerate}
+\item \textbf{无普适下界}：没有故障作用先验时，不存在把物理故障幅值映射到残差幅值的普适下界。检测保证只对“使条件归一化联合残差离开校准正常域”的偏差成立。
+\item \textbf{不可检测类}（任何同信息方法共有）：输入—输出不可见的内部异常；停留在正常行为集上的偏差；学习表示的碰撞；低于正常包络的幅值；低于预警灵敏度且慢于 $N_c$ 时间尺度的极缓漂移（注 \ref{rem:honest-anchor}(ii)）。
+\item \textbf{传感器隔离条件}：通道 $j$ 可隔离需 $\mathrm{PI}_j\ge\mathrm{PI}_{\min}$（未屏蔽信息足以预测它）+ 早期窗口内闭环反馈未污染 $u$ 历史。
+\item \textbf{执行器/过程边界}：命题 \ref{prop:sep}(c)。执行器通道级定位另需裕度 \eqref{eq:margin}。
+\item \textbf{闭环补偿}：控制器对故障的补偿在设计上不计入残差（两支路同条件于 $u$），强反馈会真实降低可检测性，实验部分单独讨论。
+\item \textbf{正确的失败模式}：以上任何条件不满足时，输出 \texttt{unresolved}/\texttt{Nonunique}/\texttt{Out-of-coverage}，而非强行分类——拒识是方法的组成部分，不是缺陷。
+\end{enumerate}
+
+%======================================================================
+\section{后滤波器的重新定位（任务十一）}
+%======================================================================
+
+对会议提出的“堆叠残差前设计后滤波器”的结论性论证：
+
+\begin{enumerate}
+\item \textbf{不需要独立的降维后滤波器}。命题 \ref{prop:invisible}(i)：故障方向未知时任何秩亏滤波都制造不可见方向；且“对所有未知故障最优”的降维目标在无故障先验下\textbf{不存在合理优化泛函}（最优性必须相对某个故障分布或方向集定义）。
+\item \textbf{检测阶段的“后滤波器”就是满秩条件白化 $W_k$}\eqref{eq:mixture}：消除量纲、去相关、抑制正常高方差方向、保留全部异常方向——它已实现后滤波器的全部合法目标，再加一层独立滤波器与之功能重复。
+\item \textbf{时间维度的整形由多尺度堆叠承担}\eqref{eq:Tmax}：不同窗口捕捉突变/弱持续/缓漂移，对最大统计量统一校准（多重比较已计入）。
+\item \textbf{投影只出现在告警后}：传感器屏蔽空间、输入响应空间、过程侧正交补——目的从“保证检测”变为“解释已检测异常的结构”，此时降维合法。
+\item \textbf{不做的主张}：不声称“对所有未知故障最优的后滤波器”“降维不损失未知故障信息”“仅正常数据即可最大化未知故障增益”。合理表述：\textit{保持全维信息的条件白化与多尺度残差整形 + 告警后用正常系统结构子空间做机制解释}。
+\end{enumerate}
+
+%======================================================================
+\section{理论命题与证明列表（含独立验证结论汇总）}
+%======================================================================
+
+\subsection{命题清单与性质分类}
+
+\begin{center}
+\small
+\begin{tabular}{p{0.30\textwidth}p{0.22\textwidth}p{0.40\textwidth}}
+\toprule
+结果 & 性质 & 验证结论 \\
+\midrule
+命题 \ref{prop:block}（污染阻断） & 给定 A-$\xi$/A-det/约定的严格定理 & 骨架正确；须钉死确认约定、显式 A-$\xi$、预警承担清队、恢复计数 $\ell_h{+}1{+}N_c$ \\
+定理 \ref{thm:prop}（精确传播） & 严格恒等式 & 通过；须补 $C^1$ 假设；非马尔可夫不破坏恒等式但使后续界降为充分性 \\
+命题 \ref{prop:jac}（完整 Jacobian） & 严格定理 & 通过（数值 $10^{-10}$ 吻合）；须补 $M_i$ 对称、偏 Jacobian 声明、$J_\xi$ 项 \\
+命题 \ref{prop:disp}（分散度界） & 严格定理 & 通过；补松紧性注记 \\
+引理 \ref{lem:context}（上下文项） & 充分条件（新增） & 修补老师稿 $L_k$ 忽略 $\chi$ 依赖的缺口 \\
+定理 \ref{thm:horizon}（有限时间界） & 修正 $L_k$ 后为条件严格；统计包络下高概率界 & 归纳与闭式正确；$L_k$ 须取线段/区域上确界；$N^\star$ 改前缀定义并处理跨区域 \\
+命题 \ref{prop:invisible}（投影盲区） & (i) 分布无关严格；(ii) 理想化下严格 & 分裂表述；(i) 比老师稿更强 \\
+引理 1（conformal 秩，老师稿） & 可交换性下严格（非原创，引 Vovk） & 正确；实践须块级可交换 \\
+推论 \ref{cor:coverage}（阈值覆盖） & \textbf{critical 修正}后严格（条件于块可交换） & 老师稿版本不可实现（$\varepsilon^R$ 不可观测）；改校准可观测超额得分 \eqref{eq:excess-score} \\
+附录 B（条件创新形式） & 严格代数恒等式 & 通过；概率解释需高斯限定（线性 MMSE 措辞） \\
+命题 \ref{prop:sep}（分解边界） & 白化坐标严格；正交假设为理想化 & \textbf{critical 修正}：残差—响应矩阵配对错位（\S\ref{sec:pairing}）；白化一致性须钉死 \\
+秩条件 \eqref{eq:margin} & 存在性严格；裕度化后可用 & 二元秩改主角裕度 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{老师稿问题总清单（写论文时逐项落实）}
+
+\textbf{Critical}（不修则结果错误或不可实现）：
+\begin{enumerate}[label=C\arabic*.]
+\item 推论 1 校准分数 $\|W_k\varepsilon^R_k\|$ 不可观测 $\to$ 改可观测超额得分 \eqref{eq:excess-score}（\S\ref{sec:cor1-fix}）。
+\item 隔离层 $r^{\mathrm{dyn}}$ 与 $\Phi^z$ 加权 $B^{\mathrm{resp}}$ 配对错位 $\to$ 改堆叠受保护多步残差或块对角响应矩阵（\S\ref{sec:pairing}）。
+\end{enumerate}
+
+\textbf{Moderate}（不修则保证虚高或有隐蔽实现陷阱）：
+\begin{enumerate}[label=M\arabic*.]
+\item $L_k$ 取值点须覆盖中值线段/区域，不能只沿保护支路（\eqref{eq:Lk-seg}）。
+\item $\delta^{\chi,n}$ 非外生：常数包络是附加假设，或用 $\ell_h$ 阶时滞递推 \eqref{eq:delay-recursion}。
+\item $M_i$ 须显式对称（$L_iL_i^\top+\epsilon I$ 参数化）。
+\item 命题 2 须声明“固定 $\chi$ 的偏 Jacobian”并补引理 \ref{lem:context}。
+\item $\Prem\in C^1$ 光滑性假设显式化；实现禁用 ReLU。
+\item A-$\xi$ 外生性显式化，否则命题 1 条件退化为 $N_c\ge N_a+1$。
+\item 预警/报警职责分离：清队挂在预警上；处理次序写入算法。
+\item 恢复等待 $\ell_h+N_c$ 差一拍 $\to\ell_h+1+N_c$；“干净”用可观测代理定义。
+\item $\beta^{\mathrm{dyn}}$ 用根和方（“RMS”措辞差 $\sqrt{N_{\mathrm{dyn}}}$）。
+\item 逐时刻可交换性不成立 $\to$ 不重叠块 + 块最大分数校准。
+\item 条件矩插入式估计 $\to$ 矩段与校准段分裂；条件覆盖只能近似（诚实表述）。
+\item Mondrian 小单元 $+\infty$ 阈值 $\to$ 最小样本约束 + 合并报告。
+\item 多尺度窗口族按参考年龄截断且校准/在线一致。
+\item 白化一致性：隔离投影须残差与响应矩阵同白化。
+\item 编码器扰动项 $\delta^E$ 进入创新响应 $\to$ 声明一阶近似与附加鲁棒性假设。
+\item 秩条件裕度化；隔离统计量须自身正常校准。
+\item 传感器屏蔽泄漏路径（闭环经 $u$）$\to$ 早期窗口限制。
+\item 命题 3(ii) 的高斯等协方差理想化须声明。
+\end{enumerate}
+
+\textbf{Cosmetic}：$A_{h,k}\to A_{\omega,k}$ 记号统一；$B^{\mathrm{resp}}$“严格下三角”改“含对角块的下块三角”；三分段闭式注明代数恒等；$\gamma^{\mathrm{det}}$ 保守性注记与分块椭球改进；命题 1 加“干净候选可在故障期确认（安全）”注记。
+
+%======================================================================
+\section{实验研究问题（任务十三·一）}
+%======================================================================
+
+\begin{description}
+\item[RQ1（正常建模）] 自由多步 Koopman--T--S 能否在不同工况与预测长度下保持可靠正常预测？理论界的经验覆盖率如何？——支撑贡献 2。
+\item[RQ2（核心机制）] 受保护参考相对持续测量更新参考，是否在持续/缓变异常上保留残差响应（抗吸收）？——支撑贡献 1；\textbf{本实验失败则重检论文动机，不得堆模块}。
+\item[RQ3（检测性能）] 全维联合多尺度统计量是否在维持目标 FAR 下改善未知异常检出与延迟？
+\item[RQ4（阈值有效性）] 工况 × 参考年龄条件化是否改善正常覆盖与跨工况 FAR 稳定性？
+\item[RQ5（隔离能力）] 屏蔽预测与输入响应分解能否在可辨识时给出正确结构类别、不可辨识时正确拒识？
+\item[RQ6（鲁棒与成本）] 对噪声、工况外输入、超参数、随机种子的稳健性；在线单样本成本是否可接受？
+\end{description}
+
+\textbf{数据集}（依仓库审计）：主实验\textbf{闭环 CSTR}（preset \texttt{cstr\_closed\_loop\_fd}：7 变量，$u=(C_i,T_i,T_{ci})$、$y=(C,T,T_c,Q_c)$，$T\!\to\!Q_c$ 反馈回路；正常训练段 $16814\times7$；8 类故障各 $1201\times7$、onset$=200$——故障 1--2 过程（催化剂失活/换热系数，指数型）、3--5 执行器偏置（斜坡）、6--8 传感器偏置（斜坡，其中故障 7 经反馈传播全局），\textbf{恰好覆盖三分结构}）；第二系统 TTS 三容水箱（7 变量 6 故障，仓库已有适配器）；TE 可选扩展。注意：(a) 适配器现将测试段整段标故障，须新增逐行 onset 标签；(b) $u/y$ 角色须写入 schema；(c) 数据许可 \texttt{to\_verify}（MathWorks FE \#66189），投稿前核实。
+
+%======================================================================
+\section{基线（任务十三·二）}
+%======================================================================
+
+全部主基线遵守仅正常数据约束、同一数据划分与调参预算：
+
+\begin{center}
+\small
+\begin{tabular}{L{0.14\textwidth}L{0.26\textwidth}L{0.44\textwidth}}
+\toprule
+类别 & 基线 & 作用 \\
+\midrule
+经典统计 & PCA / DPCA 的 $T^2$ 与 SPE/Q & 证明不是只比弱神经网络 \\
+静态重构 & DAE 重构残差（仓库已有） & 对比静态正常流形方法 \\
+动态预测 & MLP/GRU 一步预测残差 & 对比一般时序预测器 \\
+Koopman & 单一 Koopman/NKN 一步残差（仓库已有） & 评估 T--S 与多步训练增益 \\
+多步模型 & 自由多步 Koopman--T--S，无受保护参考 & 分离模型训练与参考保护的作用 \\
+参考策略 & \textbf{持续测量更新的未保护参考}（每步重锚定） & 直接验证核心问题（RQ2 对照） \\
+参考策略 & 固定延迟参考（Wang--Kruger--Irwin 式 $N$ 步旧模型） & 区分“延迟”与“延迟确认”（文献防御） \\
+阈值 & 滚动分位阈值（明确标注与理论动态阈值不同） & RQ4 对照 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+使用故障标签或已知故障方向的方法只能作“有监督/有先验上限”单独报告，不入公平排名。
+
+%======================================================================
+\section{消融（任务十三·三）}
+%======================================================================
+
+\begin{center}
+\small
+\begin{tabular}{L{0.09\textwidth}L{0.29\textwidth}L{0.46\textwidth}}
+\toprule
+编号 & 改动 & 回答的问题 \\
+\midrule
+A0 & 完整方法 & 主结果 \\
+A1 & T--S $\to$ 单一 Koopman（$N_{\mathrm{rule}}=1$） & 多工况建模是否必要 \\
+A2 & 去自由多步损失（仅一步） & 多步训练是否控制自由漂移 \\
+A3 & \textbf{受保护参考 $\to$ 测量更新参考} & 异常吸收是否存在（核心消融） \\
+A4 & 去延迟确认（$N_c=0$，即时接受候选） & 告警前污染是否发生 \\
+A5 / A6 & 去长期残差 $r^{\mathrm{lg}}$ / 去短期动态残差 $r^{\mathrm{dyn}}$ & 各残差通道的贡献 \\
+A7 & 条件动态阈值 $\to$ 全局固定阈值 & 条件化与年龄依赖是否有效 \\
+A8 & 多尺度 $\to$ 单窗瞬时 & 弱持续异常是否依赖时间积累 \\
+A9 & 完整协方差 $\to$ 对角方差 & 残差相关性是否重要 \\
+A10 & 全维 $\to$ 严格降维残差（PCA 到 $m_R/2$） & 投影盲区的实证（配命题 \ref{prop:invisible}） \\
+A11 & 去传感器屏蔽 & 传感器异常是否被自身历史吸收 \\
+A12 & 去输入响应空间（仅能量阈值分类） & 结构解释的贡献 \\
+A13 & 去拒识逻辑（强制分类） & 强制分类产生多少错误隔离 \\
+A14 & $L_k$ 去权重变化项（仅 $\|A_\omega\|$） & Jacobian 完整性对界覆盖率的影响（配 RQ1） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+围绕研究问题做单因素或成组消融，不做 $2^n$ 全组合。
+
+%======================================================================
+\section{指标（任务十三·四）}
+%======================================================================
+
+\textbf{正常建模（RQ1）}：一步与多步 RMSE/MAE；误差随预测长度曲线；理论界经验覆盖率（分区域、分锚龄）；可靠预测长度 $N^\star_g$；各模糊区域样本量与误差；界松紧比（$S_\ell/$实际 95 分位）。
+
+\textbf{检测（RQ2--RQ4）}：FAR（逐点与块级、经验 ARL$_0$）；FDR/TPR、MDR/FNR；检测延迟（onset 后首次满足持续告警规则）；AUROC/AUPRC（阈值无关补充，不替代固定 FAR 结果）；固定 FAR 下检出率；\textbf{缓变、突变、间歇故障分别报告}（CSTR 的 8 类故障天然分组）；工况内覆盖率、OUT\_OF\_COVERAGE 比例；\textbf{吸收度量}（RQ2 专用）：保护 vs 未保护参考的残差轨迹对比图、故障后 $t$ 拍残差保持率 $\|r^{\mathrm{lg}}_{t}\|/\|r^{\mathrm{lg}}_{t_{\mathrm{peak}}}\|$。
+
+\textbf{隔离（RQ5）}：传感器通道准确率与宏 F1；7 类结构类别混淆矩阵；拒识率与不可辨识样本上的误判率；执行器通道可分裕度 $\gamma_j$ 与 $\mathrm{cond}(\tilde B)$ 分布；等效输入偏差误差（仅对已知注入等效偏差的故障 3--5 报告）。
+
+\textbf{成本（RQ6）}：在线单样本耗时（编码/传播/统计/阈值分项）；告警后隔离耗时（JVP 装配单列）；参数量、峰值内存；CPU/GPU 环境说明。
+
+\textbf{统计报告}：预定义 5--10 个随机种子；均值 $\pm$ 标准差（偏态用中位数与 IQR）；逐故障结果不只给平均；关键比较给配对置信区间；保留失败运行日志。
+
+%======================================================================
+\section{代码模块设计（依仓库逐文件审计）}
+%======================================================================
+
+\subsection{可直接复用}
+
+\begin{itemize}
+\item \texttt{MaskedMultiheadAttention} 与 \texttt{AttentionMaskFactory}（\texttt{models/attention.py}）：注意现有 \texttt{causal} 掩码允许看当前步，需加 \texttt{strict\_causal} 变体；
+\item \texttt{BaseModel} 契约与 \texttt{Trainer}、\texttt{CheckpointManager}：模型输出/损失约定与训练骨架；
+\item \texttt{xai/jacobian.py} 的 autodiff Jacobian：隔离层底座；
+\item \texttt{FaultDetectionEvaluator}：fit(normal)/evaluate 两阶段接口范式；
+\item \texttt{DynamicWindowDataset}：严格过去窗口在数据层保证；
+\item \texttt{SequentialSplitter}：扩展四分协议的接缝；\texttt{Normalizer}：fit-on-train 缩放；
+\item CSTR、TTS、TE 适配器；NKN 保留为单一 Koopman 基线；
+\item \texttt{Experiment}、\texttt{Study}、\texttt{ArtifactStore}、\texttt{RunLogger}：配置哈希、逐时刻产物、种子复现。
+\end{itemize}
+
+\subsection{新增模块布局（遵守架构文档分层边界）}
+
+\begin{center}
+\small
+\begin{tabular}{L{0.30\textwidth}L{0.58\textwidth}}
+\toprule
+新文件（路径相对 \texttt{src/joff/}） & 内容 \\
+\midrule
+\texttt{models/} \texttt{protected\_koopman\_ts.py} & 严格过去 $(z,\chi)$ 双输出编码器（含掩码条件输入）、前提网络、$M_i=L_iL_i^\top+\epsilon I$ 度量、局部 Koopman 库 $\{A_i,B_i,o_i\}$、自由多步 rollout forward（返回 dict：prediction/z/rule\_weights/rollout） \\
+\texttt{training/losses.py}（扩展） & \texttt{FreeRunMultiStepLoss}（\eqref{eq:loss}--\eqref{eq:msloss}，课程式视野调度、掩码采样策略） \\
+\texttt{evaluation/} \texttt{protected\_reference.py} & 第 6 节状态机（\texttt{CandQ}/\texttt{AnchorRing}/\texttt{ProtHist} 等具名缓冲；状态可序列化） \\
+\texttt{evaluation/residuals.py} & 统一残差 \eqref{eq:unified-res}--\eqref{eq:innovation}、联合向量 \eqref{eq:joint} \\
+\texttt{evaluation/} \texttt{conditional\_detection.py} & 条件矩 + 收缩白化、多尺度 $T^{\max}$、误差半径递推 \eqref{eq:radius}、超额得分分裂 conformal（\S\ref{sec:cor1-fix}）、OUT\_OF\_COVERAGE 判据 \\
+\texttt{evaluation/} \texttt{structured\_isolation.py} & 屏蔽残差与豁免检验、$B^{\mathrm{resp}}$ JVP 装配、白化投影、裕度与七类判决（故障语义不进 \texttt{xai/}） \\
+\texttt{data/pipeline/split.py}（扩展） & \texttt{FourWayNormalSplitter}（训练/验证/校准/冻结测试 + 隔离带，保存切分索引） \\
+\texttt{experiments/} \texttt{paper\_protocol.py} & 训练 $\to$ 验证选型 $\to$ 包络估计 $\to$ 冻结 $\to$ 校准 $\to$ 故障测试编排；配置 \texttt{configs/paper/} 下 \texttt{smoke}、\texttt{cstr}、\texttt{tts}、\texttt{te}；入口 \texttt{examples/paper\_smoke.py} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{前置修补}：\texttt{real\_process.py} 为 \texttt{cstr\_closed\_loop\_fd} 加逐行 onset$=200$ 标签与 $u/y$ 角色 schema（现整段标故障、列角色只在说明 txt 中）；\texttt{evaluation} 增加检测延迟指标。测试：\texttt{test\_protected\_koopman\_ts.py}、\texttt{test\_protected\_reference.py}、\texttt{test\_structured\_isolation.py}，关键单测按第 5、7、8 节的不变量与数值验证协议。
+
+\subsection{关键单元测试清单}
+
+规则权重非负和一；起点只用严格过去；自由递推第二步起不读真实未来；单规则退化为普通 Koopman；autodiff 与有限差分 Jacobian 对拍（含权重变化项）；定理 1 恒等式机器精度（含故障不变性）；保存/加载一致；状态机无污染不变量（构造对抗序列：预警前注入异常，断言无受污染锚点被确认）；四分切分无重叠且隔离带成立。
+
+%======================================================================
+\section{潜在失败点与止损预案}
+%======================================================================
+
+\begin{center}
+\small
+\begin{tabular}{p{0.30\textwidth}p{0.26\textwidth}p{0.36\textwidth}}
+\toprule
+风险 & 早期信号 & 预案 \\
+\midrule
+正常自由预测快速发散 & 多步误差随长度爆炸、$L_g\gg1$ & 缩短 $N^\star$、强化 $\mathcal L_{\mathrm{prop}}$、限制运行区域、降低理论主张（缩为短窗版本） \\
+异常吸收现象不显著（RQ2 失败） & 保护/未保护无稳定差异 & 检查未保护基线的更新定义与故障类型（缓变最能暴露吸收）；仍不成立则把主贡献重心移到有限时间界+动态阈值，参考保护降级为机制组件 \\
+T--S 规则塌缩 & 单规则占优 & $\mathcal L_{\mathrm{fuzzy}}$ 调参、减规则数、报告有效规则数；极端时退化为 A1 并诚实报告 \\
+条件分区样本不足 & 协方差奇异、阈值抖动 & 收缩加强、单元合并、减少条件变量、报告适用范围 \\
+理论界过度保守（覆盖率 $\approx100\%$ 但松几个量级） & 界/实际比过大 & 用 $P$-加权范数、分块椭球 $\gamma^{\mathrm{det}}$、区域细化；论文中把界定位为“设计工具（锚龄策略/阈值结构）”而非紧界 \\
+$\delta^\chi$ 包络假设经验不成立 & 保护回放中 $\delta^\chi$ 随锚龄超线性增长 & 切换到时滞递推 \eqref{eq:delay-recursion} 或缩短 $N_{\mathrm{refresh}}$ \\
+传感器通道冗余不足 & $\mathrm{PI}_j$ 普遍低 & 该通道只输出 \texttt{Sensor-unresolved}；论文如实报告冗余条件 \\
+执行器/过程列空间重合 & $\gamma_j$ 普遍小 & 报等效输入解释 + \texttt{Nonunique}；以可分裕度表刻画数据集固有可辨识性 \\
+创新撞车 & 见第 23 节对比表 & 按收窄表述定位；引用并对比三个高威胁先行者 \\
+计算量失控 & 单实验超一天 & 减规则数/窗口/隔离 JVP 频率；Jacobian 低频评估 + JVP \\
+数据许可不通过 & \texttt{to\_verify} 未决 & 联系来源核实；不通过则主实验换 TTS \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{硬止损}（与任务书一致）：正常训练数据被确认含未标注故障且无法清理；没有可信 $u_k$ 却声称输入响应隔离；独立正常块不足却声称有限样本覆盖；方法只在看过的故障上工作却声称未知故障泛化。遇到即与导师重定范围。
+
+%======================================================================
+\section{论文最终贡献表述与创新边界}
+%======================================================================
+
+\subsection{创新边界检索结论（任务十四）}
+
+四条检索线（Koopman-FDI、T--S 模糊 FDI、受保护参考、动态阈值/conformal）的总判断：\textbf{三项贡献在收窄表述下均成立；以下先行者必须引用并正面对比}。
+
+\textbf{高威胁先行者（必须重点防御）}：
+\begin{center}
+\small
+\begin{tabular}{p{0.34\textwidth}p{0.58\textwidth}}
+\toprule
+先行工作 & 已占据的空间 / 我们的差异 \\
+\midrule
+Wang--Kruger--Irwin, I\&EC Res. 2005（快速滑窗 PCA） & \textbf{已提出“用 $N$ 步前旧模型评估当前样本以免慢漂移被吸收”}——延迟思想已存在。差异：其延迟固定且无条件（旧窗口本身可能已污染），无“确认安全才准入”判据（延迟 $\ne$ 确认）、无动力学 rollout、无认证界。 \\
+US 专利 7{,}587{,}296（Tokyo Electron, 2009） & \textbf{已实现“判定正常才更新 + 部分变量永久冻结”}的门控更新。差异：门控是当步的（阈下慢漂移仍被逐步吸收——正是我们的对象），静态统计模型、无理论保证。 \\
+Zhang--Polycarpou--Parisini, IEEE TAC 2002（死区自适应观测器） & 概念上最接近的控制理论工作：死区在检测前关闭自适应以防吸收，且有严格保证。差异：观测器仍由（可能含故障的）实时测量反馈驱动，参考未与污染测量隔离；死区依据当步残差而非延迟确认锚点；无有限时间认证 rollout。 \\
+Bakhtiaridoust/Irani--Yadegar--Meskin 系列（ISA Trans 2023、CEP 2024 等） & 已完整占据“仅正常数据 + 深度 Koopman + 结构化残差 + 传感器/执行器隔离”框架（CEP 2024 还有三容水箱实物实验）。差异：全部单一全局提升模型（无 T--S 多工况结构）、常数经验阈值（无误差传播界）、在线残差每步由实测驱动（无保护机制）。 \\
+Hu \& Chen, J. Process Control 2026（模糊深度 Koopman MPC） & 唯一的“模糊+深度 Koopman”显式组合。差异：纯预测控制，无残差/阈值/隔离/误差界——任务正交但必须引用。 \\
+JPC 2024 两步区间估计 T--S UPV 故障检测；Combastel ZKF；JPC 2025 conformal-PCA/AE & 分别占据“可保证阈值的 T--S UPV 检测”“zonotope+高斯混合阈值”“conformal 进入故障检测”。差异见下方收窄表述。 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{检索确认的空白（可安全声称）}：(i) 无任何工作同时具备“延迟确认（非固定延迟/当步门控）安全锚点 + 与检测判据耦合的隔离式参考更新 + 从确认锚点出发、时域由认证误差界显式限定的冻结名义 rollout 及其保证”；(ii) 无任何 T--S 模糊 FDI 工作推导含规则权重变化项的完整 Jacobian 用于误差传播界（最接近的 DMVT/扇形界路线不显式分离 $\partial\omega_i/\partial x$ 项，也不适配学习型 Koopman 提升）；(iii) 无任何工作把“确定性传播误差半径 + 独立 conformal 随机余项”按“工况 × 参考年龄”双条件化并做多窗族误报控制。反面动机证据：EV 充电攻击检测（arXiv 2024）亲自记录了滑窗重学习“把攻击签名同化进模型导致检测失效”却未提补救；WW-EDMD（IJCAS 2025）遗忘因子在线更新 Koopman 无保护机制。
+
+\textbf{不可声称}：首创“参考保护/防污染更新”思想（Kloft--Laskov 已把在线参考投毒形式化并证明约束更新有效）；首创“仅正常数据 Koopman FDI”框架（Meskin 系列）；首创“conformal 用于故障检测”（JPC 2025）；首创“冻结模型开环 rollout 残差”（经典 parallel model，其长时域发散问题已被充分记录）。
+
+\subsection{三项主贡献（最终表述）}
+
+\begin{enumerate}
+\item \textbf{受保护的因果 Attention--Koopman--T--S 正常参考}：首次给出\textbf{带可证明污染阻断条件的延迟确认}保护参考架构——数据支路持续读严格过去测量，长期正常支路只从延迟确认安全锚点初始化、以冻结模型/记录指令/预测输出自由传播；候选—确认—冻结—恢复状态机经逐转移巡检不存在异常态下的隐式测量反馈路径（命题 1 + 不变量 I）。与固定延迟（Wang 2005）、当步门控（US7587296）、死区自适应（Zhang 2002）的本质区别：\textit{确认}而非\textit{延迟}，\textit{隔离}而非\textit{门控}，且回答“rollout 能开多长、延迟要多久才安全”。
+\item \textbf{模糊结构相关的有限时间残差传播与动态阈值}：统一起点索引残差贯通训练/短期/长期三用途（消除教师强制错配）；完整 T--S Koopman Jacobian 显式分解出规则权重变化项并给出分散度界与上下文引理，证明局部稳定 $\ne$ 整体自由递推可靠；据此得高概率有限时间正常参考半径与可靠预测长度，生成动态阈值的确定性部分，随机余项由可观测超额得分的块 conformal 按“模糊区域 × 参考年龄”双条件校准。
+\item \textbf{无故障先验下的全维检测与有限结构化隔离}：分布无关的投影盲区命题支撑全维条件白化多尺度检测；告警后经传感器屏蔽（含豁免检验与冗余先验）与正常输入响应子空间（配对修正后的受保护多步残差版本）输出七类带拒识的结构化结论，配可分裕度与不可辨识边界（命题 4）。
+\end{enumerate}
+
+\textbf{单一故事线}（与任务书第二十三节一致）：测量更新型正常模型会吸收异常 $\to$ 分离数据支路与延迟确认受保护支路 $\to$ 完整模糊 Jacobian 与有限时间界控制自由预测漂移并生成阈值确定性部分 $\to$ 独立正常块校准随机余项 $\to$ 全维多尺度检测（方向未知不降维）$\to$ 告警后有限、可拒识的结构化隔离。核心价值：$\boxed{\text{把“实际状态估计”与“正常参照生成”明确分离}}$，并回答防污染、控漂移、可检测、有限隔离四问。
+
+%======================================================================
+\section{仍需导师确认的问题}
+%======================================================================
+
+\begin{enumerate}
+\item \textbf{目标期刊}：IEEE TFS（模糊结构叙事为主）还是 IEEE TII / J. Process Control（应用叙事为主）？决定第 8 节理论深度与第 17 节实验规模的配比。
+\item \textbf{主数据集确认}：闭环 CSTR 为主、TTS 为次的默认选择是否同意？TE 是否必做？CSTR 数据许可（MathWorks FE \#66189，卡片标 \texttt{to\_verify}）由谁核实？
+\item \textbf{外生工况 $\xi$}：闭环 CSTR 的扰动（$C_i,T_i,T_{ci}$ 上的周期刷新噪声）是否按 $\xi$ 建模，还是视为不可测扰动（则 $m_\xi=0$，历史窗只含 $u,y$）？这影响假设 A-$\xi$ 的表述。
+\item \textbf{采样周期与回路时间常数}：数据说明未给物理采样周期；隔离早期窗口 $N_s$ 与 $\ell_h$ 的物理整定需要它。
+\item \textbf{动态阈值定位确认}：本设计采用“确定性传播项 + conformal 随机项”的混合方案（第 11 节），并把确定界诚实降级为高概率界——是否符合老师稿“理论残差动力学阈值”的预期强度？
+\item \textbf{两处 critical 修正的认可}：推论 1 改校准可观测超额得分（\S\ref{sec:cor1-fix}）；隔离层改堆叠受保护多步残差配对（\S\ref{sec:pairing}）。两者都偏离老师稿原文，需导师确认后写入论文。
+\item \textbf{贡献优先级}：若周期不够，建议砍序：TE 扩展 $\to$ 执行器通道级定位（保留三分结构隔离）$\to$ 多锚点环（保留单锚）；受保护参考与有限时间界不可砍。是否同意？
+\item \textbf{故障验证可视化}：是否允许用一小段故障数据做最终前的可视化 sanity check（严格协议下不允许，本设计默认不允许）？
+\item \textbf{硬件实验}：是否要求真实装置实验？
+\item \textbf{慢漂移盲区的表述}：低于预警灵敏度的极缓漂移可污染锚点（注 \ref{rem:honest-anchor}）——作为 Scope 声明是否可接受，还是需要额外机制（如长窗预警联动候选冻结）？
+\end{enumerate}
+
+\bigskip
+\begin{center}
+\rule{0.6\textwidth}{0.4pt}\\[4pt]
+\small 本设计文档由多智能体验证工作流支撑：6 个定理/命题独立重推导（含数值验证）、4 条文献检索线（2026-07）、1 次仓库逐文件审计；全部原始结论存于会话产物目录。
+\end{center}
+
+\end{document}

@@ -116,10 +116,13 @@ src/joff/              核心包
 examples/              smoke 与 quickstart 示例
 tests/                 单元测试与集成测试
 configs/               示例实验配置
+docs/                  项目文档（入口：docs/文档导航.md）
 datasets/cards/oa/     公开数据集卡片
 datasets/raw/oa/       OA 原始数据
 datasets/manifest.public.yaml
 ```
+
+项目文档（研究路线、技术架构、论文方法设计）从 [docs/文档导航.md](docs/文档导航.md) 开始阅读。
 
 ## 开发
 
