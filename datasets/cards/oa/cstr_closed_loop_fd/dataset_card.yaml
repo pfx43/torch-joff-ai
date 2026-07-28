@@ -2,24 +2,43 @@ name: cstr_closed_loop_fd
 version: real-v1
 description: Closed-loop CSTR fault-diagnosis dataset.
 access: {tag: oa, disclosure: open_access, license: to_verify}
-adapter: CSTRAdapter
+adapter: CSTRFaultAdapter
 files:
   root: ../../../raw/oa/CSTR/fd_close
   train: train/model1[train].mat
   test: test/model1[test].mat
+  description: 7v 正序, 8c 故障.txt
+source:
+  url: https://www.mathworks.com/matlabcentral/fileexchange/66189-feedback-controlled-cstr-process-for-fault-simulation
+  license_status: to_verify
+protocol:
+  fault_onset: 200
+  fault_families:
+    process: [1, 2]
+    actuator: [3, 4, 5]
+    sensor: [6, 7, 8]
 schema:
   sample_rate: 1.0
   feature_count: 7
   columns:
     - {name: time, role: time}
-    - {name: x00, role: input}
+    - {name: raw_index, role: raw_index}
+    - {name: segment, role: segment}
+    - {name: Ci, role: control_input}
+    - {name: Ti, role: control_input}
+    - {name: Tci, role: control_input}
+    - {name: C, role: measured_output}
+    - {name: T, role: measured_output}
+    - {name: Tc, role: measured_output}
+    - {name: Qc, role: measured_output}
     - {name: fault_id, role: fault_id}
 tasks:
   fault_diagnosis:
-    inputs: [input]
+    inputs: [control_input, measured_output]
     targets: [fault_id]
     label_column: fault_id
     normal_label: 0
+    fault_switch: 200
 pipeline:
   split: {type: official}
   normalization: {method: standard}

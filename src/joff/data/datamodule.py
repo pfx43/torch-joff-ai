@@ -1,4 +1,22 @@
-"""PyTorch DataModule with lightweight pipeline integration."""
+"""
+Joff 的 PyTorch 数据准备入口与轻量流水线编排。
+
+文件用途：
+    把数组、通用文件或已注册 dataset preset 转换为训练/测试 Dataset 和 DataLoader，
+    并保存 schema、任务、切分、清洗、归一化、窗口与来源摘要。
+主要职责：
+    协调数据读取后的任务选列和预处理生命周期；本文件不读取论文模型配置、不训练模型，
+    也不决定检测阈值、故障类别或实验结论。
+关键输入与输出：
+    输入为数组、文件路径或 CanonicalDataset 适配器输出及显式 pipeline 配置；
+    输出为 DataModule、可重放的数据摘要和可选 ArtifactStore 产物。
+依赖与副作用：
+    只有显式构造或保存时才读取数据/写入产物；模块导入不访问文件、不创建目录、
+    不修改 Matplotlib 或随机全局状态。
+重要约束：
+    拟合型预处理只能使用允许的训练数据；官方 split 和 segment/episode 边界必须保留；
+    schema/task 决定模型列，追溯列和标签不得泄漏到输入；相同配置和种子应产生可比较结果。
+"""
 
 from __future__ import annotations
 
@@ -37,7 +55,11 @@ from joff.data.tasks import TaskView
 
 
 class DataModule:
-    """Small data container that returns PyTorch dataloaders and pipeline summaries."""
+    """保存训练/测试 Dataset，并通过统一入口构造 DataLoader 与可追溯摘要。
+
+    DataModule 负责数据准备，不拥有模型、训练或论文在线监视状态。对序列数据，调用方可分别
+    提供 train/test 的 segment id，使窗口生成器拒绝任何跨 episode 的样本。
+    """
 
     def __init__(
         self,
@@ -67,6 +89,9 @@ class DataModule:
         test_ratio: float = 0.2,
         seed: int = 42,
         groups: Any | None = None,
+        test_segment_ids: Any | None = None,
+        train_row_provenance: Mapping[str, Any] | None = None,
+        test_row_provenance: Mapping[str, Any] | None = None,
         pipeline: dict[str, Any] | list[Any] | str | Path | DataPipeline | None = None,
         missing: dict[str, Any] | None = None,
         outliers: dict[str, Any] | None = None,
@@ -77,7 +102,33 @@ class DataModule:
         sequence: dict[str, Any] | None = None,
         mpc_window: dict[str, Any] | None = None,
     ) -> "DataModule":
-        """Create a data module from array-like data and optional pipeline configs."""
+        """从数组和显式流水线配置构造训练、测试数据集。
+
+        参数：
+            x_train/y_train: 训练输入及可选目标；若未提供独立测试数组，方法会按
+                ``split`` 或 ``test_ratio`` 从这些行中划分测试集。
+            x_test/y_test: 可选的独立测试输入和目标；提供 ``x_test`` 时不会重新切分。
+            batch_size/shuffle: DataLoader 的批量大小与训练集打乱策略。
+            test_ratio/seed: 内部切分比例与可复现随机种子。
+            groups: 训练原始行的分组标识，供内部切分和 sequence 窗口保留边界。
+            test_segment_ids: 独立测试原始行的 segment/episode 标识，只在提供
+                ``x_test`` 的 sequence 模式中使用。
+            train_row_provenance/test_row_provenance: 与对应原始行一一对齐的列式来源信息；
+                只用于序列预测反查，不进入模型张量或预处理器。
+            pipeline: DataPipeline、配置映射或配置路径；其值先与下面的显式参数合并。
+            missing/outliers/normalization/split: 缺失值、异常值、归一化和切分配置；
+                拟合型步骤只从训练 split 学习参数。
+            mask/window/sequence/mpc_window: 互斥或受限组合的数据视图配置；
+                ``mpc_window`` 需要 schema 角色信息，因此必须改用 ``from_preset``。
+        返回：
+            保存训练/测试 Dataset、DataLoader 设置和流水线摘要的 ``DataModule``。
+        异常：
+            配置组合冲突、数组行数不匹配、segment/来源列长度错误，或请求需要 schema
+            的 MPC 窗口时抛出 ``ValueError``；配置路径不可读时传播读取异常。
+        副作用：
+            可能读取 ``pipeline`` 配置文件并在内存拟合训练侧预处理器；不写文件，也不把
+            segment 或来源信息当作模型特征。
+        """
 
         pipeline_config = _apply_explicit_pipeline_overrides(
             _normalize_pipeline_config(pipeline),
@@ -129,6 +180,9 @@ class DataModule:
                 seed=seed,
                 test_ratio=test_ratio,
                 groups=groups,
+                test_segment_ids=test_segment_ids,
+                train_row_provenance=train_row_provenance,
+                test_row_provenance=test_row_provenance,
             )
         if window is not None:
             if mask is not None:
@@ -312,7 +366,11 @@ class DataModule:
         sequence: dict[str, Any] | None = None,
         mpc_window: dict[str, Any] | None = None,
     ) -> "DataModule":
-        """Create a data module from a registered preset or ``dataset_card.yaml`` path."""
+        """从注册 preset 或 dataset card 构造数据模块并保留官方 segment 边界。
+
+        适配器先提供 CanonicalDataset、schema 与 TaskSchema；本方法再做任务选列和流水线。
+        train/test segment id 会分别传入 sequence 窗口，防止官方 test 中相邻 episode 被拼接。
+        """
 
         adapter = DATASET_REGISTRY.resolve(preset)
         task_name = _normalize_task_alias(task)
@@ -369,11 +427,21 @@ class DataModule:
         else:
             train_x, train_y = task_view.arrays(train_frame, label_mapping=label_mapping)
             train_groups = _frame_group_array(train_frame, schema)
+            sequence_enabled = pipeline_config.get("sequence") is not None
+            train_row_provenance = (
+                _split_row_provenance(canonical, "train") if sequence_enabled else None
+            )
             if test_frame is None:
                 test_x = None
                 test_y = None
+                test_segment_ids = None
+                test_row_provenance = None
             else:
                 test_x, test_y = task_view.arrays(test_frame, label_mapping=label_mapping)
+                test_segment_ids = _frame_group_array(test_frame, schema)
+                test_row_provenance = (
+                    _split_row_provenance(canonical, "test") if sequence_enabled else None
+                )
 
             data = cls.from_arrays(
                 train_x,
@@ -384,7 +452,10 @@ class DataModule:
                 shuffle=effective_shuffle,
                 test_ratio=test_ratio,
                 seed=seed,
-                groups=train_groups if test_frame is None else None,
+                groups=train_groups,
+                test_segment_ids=test_segment_ids,
+                train_row_provenance=train_row_provenance,
+                test_row_provenance=test_row_provenance,
                 missing=pipeline_config.get("missing"),
                 outliers=pipeline_config.get("outliers"),
                 normalization=pipeline_config.get("normalization"),
@@ -603,7 +674,34 @@ class DataModule:
         seed: int,
         test_ratio: float,
         groups: Any | None,
+        test_segment_ids: Any | None,
+        train_row_provenance: Mapping[str, Any] | None,
+        test_row_provenance: Mapping[str, Any] | None,
     ) -> "DataModule":
+        """构造不跨 segment 的序列数据，并同步清洗后的来源行索引。
+
+        参数：
+            x/y: 训练侧原始时间序列与目标；``y`` 为空时仅允许
+                ``sequence.target_from_input=true``。
+            x_test/y_test: 可选独立测试序列与目标；未提供时从训练侧按 ``split`` 划分。
+            batch_size/shuffle: 返回 DataModule 使用的加载参数。
+            missing/outliers/normalization: 训练/测试清洗配置；归一化器只在训练侧拟合。
+            split/sequence: 时间切分与窗口长度、步长、目标构造等序列配置。
+            seed/test_ratio: 可复现切分所需的随机种子与默认比例。
+            groups/test_segment_ids: 分别与训练和独立测试原始行对应的 episode 标识。
+            train_row_provenance/test_row_provenance: 与原始行对齐的 source、episode、time
+                和 raw_index 等列；清洗、切分后按 ``TabularSeries.index`` 同步。
+        返回：
+            训练和测试均为 ``SequenceDataset`` 的 DataModule；摘要记录切分、预处理和
+            可由 ``index``/``target_index`` 查询的列式来源信息。
+        异常：
+            目标策略非法、边界或来源列数量不等、故障 episode 短于窗口，或预处理后任一
+            split 无合法窗口时抛出 ``ValueError``。
+        副作用：
+            只在内存拟合训练侧清洗/归一化状态并构造张量数据集；不读写外部文件。
+            来源列只进入摘要，不进入模型张量。
+        """
+
         config = _resolve_sequence_config(sequence)
         if y is None:
             if not config["target_from_input"]:
@@ -613,6 +711,28 @@ class DataModule:
                 )
             y = x
         raw_groups = _optional_group_array(groups, expected_rows=np.asarray(x).shape[0])
+        raw_train_provenance = _optional_row_provenance(
+            train_row_provenance,
+            expected_rows=np.asarray(x).shape[0],
+            field_name="train_row_provenance",
+        )
+        if x_test is None:
+            if test_segment_ids is not None:
+                raise ValueError("test_segment_ids requires x_test/y_test to be provided.")
+            if test_row_provenance is not None:
+                raise ValueError("test_row_provenance requires x_test/y_test to be provided.")
+            raw_test_segment_ids = None
+            raw_test_provenance = None
+        else:
+            raw_test_segment_ids = _optional_group_array(
+                test_segment_ids,
+                expected_rows=np.asarray(x_test).shape[0],
+            )
+            raw_test_provenance = _optional_row_provenance(
+                test_row_provenance,
+                expected_rows=np.asarray(x_test).shape[0],
+                field_name="test_row_provenance",
+            )
         train_clean = _clean_series(
             TabularSeries(x=np.asarray(x, dtype=float), y=np.asarray(y, dtype=float), quality=np.asarray(y, dtype=float)),
             missing=missing,
@@ -677,10 +797,28 @@ class DataModule:
             )
             summaries["normalization_summary"] = normalization_summary
 
-        train_groups = _groups_for_series(raw_groups, train_series)
-        test_groups = _groups_for_series(raw_groups, test_series) if x_test is None else None
-        train_dataset = _sequence_dataset_from_series(train_series, config, segment_ids=train_groups)
-        test_dataset = _sequence_dataset_from_series(test_series, config, segment_ids=test_groups)
+        train_segment_ids = _groups_for_series(raw_groups, train_series)
+        test_segment_ids = (
+            _groups_for_series(raw_groups, test_series)
+            if x_test is None
+            else _groups_for_series(raw_test_segment_ids, test_series)
+        )
+        train_provenance = _provenance_for_series(raw_train_provenance, train_series)
+        test_provenance = (
+            _provenance_for_series(raw_train_provenance, test_series)
+            if x_test is None
+            else _provenance_for_series(raw_test_provenance, test_series)
+        )
+        train_dataset = _sequence_dataset_from_series(
+            train_series,
+            config,
+            segment_ids=train_segment_ids,
+        )
+        test_dataset = _sequence_dataset_from_series(
+            test_series,
+            config,
+            segment_ids=test_segment_ids,
+        )
         _require_nonempty_sequence_dataset(train_dataset, split="train")
         _require_nonempty_sequence_dataset(test_dataset, split="test")
         summaries["split_summary"] = split_summary
@@ -689,6 +827,11 @@ class DataModule:
             "train_samples": len(train_dataset),
             "test_samples": len(test_dataset),
         }
+        if train_provenance is not None or test_provenance is not None:
+            summaries["sequence_provenance"] = _sequence_provenance_summary(
+                train=train_provenance,
+                test=test_provenance,
+            )
         return cls(
             train_dataset,
             test_dataset,
@@ -1080,6 +1223,105 @@ def _groups_for_series(groups: np.ndarray | None, series: TabularSeries) -> np.n
     return np.asarray(groups)[indices]
 
 
+def _optional_row_provenance(
+    value: Mapping[str, Any] | None,
+    *,
+    expected_rows: int,
+    field_name: str,
+) -> dict[str, np.ndarray] | None:
+    """验证列式来源信息与原始数组逐行对齐。
+
+    参数：
+        value: 字段名到一维数组的映射；允许字符串、整数和浮点来源列。
+        expected_rows: 对应原始输入数组的行数。
+        field_name: 用于错误消息的调用参数名。
+    返回：
+        复制为 NumPy 一维数组的字典；输入为空时返回 ``None``。
+    异常：
+        字段名为空、任一来源列不是一维或长度不等于 ``expected_rows`` 时抛出
+        ``ValueError``。
+    副作用：
+        无。来源值不转成浮点，也不会进入特征预处理。
+    """
+
+    if value is None:
+        return None
+    result: dict[str, np.ndarray] = {}
+    for raw_name, raw_values in value.items():
+        name = str(raw_name).strip()
+        if not name:
+            raise ValueError(f"{field_name} field names cannot be empty.")
+        array = np.asarray(raw_values)
+        if array.ndim == 2 and array.shape[1] == 1:
+            array = array[:, 0]
+        if array.ndim != 1 or array.shape[0] != expected_rows:
+            raise ValueError(
+                f"{field_name}.{name} must provide one value per input row. "
+                f"Current shape: {array.shape}, expected rows={expected_rows}."
+            )
+        result[name] = array.copy()
+    return result
+
+
+def _provenance_for_series(
+    provenance: Mapping[str, np.ndarray] | None,
+    series: TabularSeries,
+) -> dict[str, np.ndarray] | None:
+    """按 ``TabularSeries.index`` 同步清洗、切分后的来源列。
+
+    参数：
+        provenance: 与清洗前原始数组逐行对齐的列式来源信息，或 ``None``。
+        series: 已完成删行、切分和可选归一化的 ``TabularSeries``。
+    返回：
+        按 ``series.index`` 重排的新字典；第 i 项对应最终 SequenceDataset 第 i 行。
+        输入来源为空时返回 ``None``。
+    异常：
+        不主动抛异常；索引越界表示上游违反逐行对齐约束，会由 NumPy ``IndexError``
+        直接暴露而不静默修正。
+    副作用：
+        无。只创建重排后的数组，不改变来源映射或 series。
+
+    ``TabularSeries`` 在删行和切分时保留相对于原始数组的索引，因此这里不能用新的局部
+    行号直接切片。
+    """
+
+    if provenance is None:
+        return None
+    indices = np.asarray(series.index, dtype=int)
+    return {name: np.asarray(values)[indices] for name, values in provenance.items()}
+
+
+def _sequence_provenance_summary(
+    *,
+    train: Mapping[str, np.ndarray] | None,
+    test: Mapping[str, np.ndarray] | None,
+) -> dict[str, Any]:
+    """生成可持久化、可由序列样本索引直接查询的来源摘要。
+
+    参数：
+        train/test: 已与最终训练、测试 SequenceDataset 行位置对齐的列式来源数组。
+    返回：
+        含索引语义说明及 JSON 可序列化 train/test 列表的字典。
+    异常：
+        不主动抛异常；NumPy 标量由 ``_json_ready`` 转成基础 Python 类型。
+    副作用：
+        无。这里只复制为列表，不读取原始文件，也不触碰故障标签。
+    """
+
+    def _columns(values: Mapping[str, np.ndarray] | None) -> dict[str, Any]:
+        if values is None:
+            return {}
+        return {name: _json_ready(np.asarray(column).tolist()) for name, column in values.items()}
+
+    return {
+        "index_semantics": (
+            "SequenceDataset index and target_index address processed split rows in these columns."
+        ),
+        "train": _columns(train),
+        "test": _columns(test),
+    }
+
+
 def _first_int(config: dict[str, Any], keys: tuple[str, ...], *, default: int) -> int:
     value = _first_value(config, keys, default=default)
     return int(value)
@@ -1114,6 +1356,63 @@ def _optional_concat_split(canonical: CanonicalDataset, split: str) -> pd.DataFr
         return None
     frames = [segment.frame for segment in segments]
     return pd.concat(frames, axis=0, ignore_index=True)
+
+
+def _split_row_provenance(
+    canonical: CanonicalDataset,
+    split: str,
+) -> dict[str, np.ndarray] | None:
+    """提取与规范 split 拼接顺序完全一致的逐行来源列。
+
+    参数：
+        canonical: 保留独立 ``Segment`` 和列级 schema 的规范数据集。
+        split: 要提取的官方 split 名称。
+    返回：
+        至少含 ``source`` 与 ``episode`` 的列式数组；schema 声明并实际存在时还包含
+        ``time`` 和 ``raw_index``。split 不存在时返回 ``None``。
+    异常：
+        同一 split 的 segment 缺少 schema 已声明的追溯列时抛出 ``ValueError``，
+        避免拼接后用错误局部行号冒充原始位置。
+    副作用：
+        无。函数只读 segment frame/meta 并分配来源数组，不改变规范数据集。
+    """
+
+    segments = canonical.splits.get(split)
+    if not segments:
+        return None
+    trace_columns: dict[str, str] = {}
+    for role in ("time", "raw_index"):
+        columns = canonical.schema.role_columns(role)
+        if columns:
+            trace_columns[role] = columns[0]
+
+    chunks: dict[str, list[np.ndarray]] = {
+        "source": [],
+        "episode": [],
+        **{field: [] for field in trace_columns},
+    }
+    segment_columns = canonical.schema.role_columns("segment")
+    segment_column = segment_columns[0] if segment_columns else None
+    for segment in segments:
+        row_count = int(segment.frame.shape[0])
+        chunks["source"].append(np.full(row_count, str(segment.meta.source), dtype=object))
+        if segment_column is not None and segment_column in segment.frame.columns:
+            episode = segment.frame.loc[:, segment_column].to_numpy()
+        else:
+            episode = np.full(row_count, str(segment.meta.segment_id), dtype=object)
+        chunks["episode"].append(episode)
+        for field, column in trace_columns.items():
+            if column not in segment.frame.columns:
+                raise ValueError(
+                    f"Canonical split {split!r} declares provenance column {column!r} "
+                    f"but segment {segment.meta.segment_id!r} does not contain it."
+                )
+            chunks[field].append(segment.frame.loc[:, column].to_numpy())
+
+    return {
+        field: np.concatenate(field_chunks, axis=0)
+        for field, field_chunks in chunks.items()
+    }
 
 
 def _frame_to_task_arrays(

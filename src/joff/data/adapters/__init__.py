@@ -1,4 +1,18 @@
-"""Dataset adapters and preset registry."""
+"""
+数据集适配器公共导出与 preset 注册表。
+
+文件用途：
+    在导入期声明稳定的数据集名称、短别名和对应适配器对象，供 DataModule 按名称解析。
+主要职责：
+    只组装适配器和兼容旧 special 名称；不读取原始数据、不创建运行目录，也不执行预处理。
+关键输入与输出：
+    输入为调用方传入的 preset/alias 字符串；输出为已注册的 DatasetAdapter。
+依赖与副作用：
+    导入时仅创建轻量适配器对象和内存注册表，不访问数据文件、网络或随机状态。
+重要约束：
+    名称与旧别名必须稳定；真实数据适配器替换 smoke fallback 时保持相同公开名称；
+    各数据集的物理 schema 必须由适配器显式声明，不能由模型猜测。
+"""
 
 from __future__ import annotations
 
@@ -111,12 +125,7 @@ DATASET_REGISTRY.register(
     replace=True,
 )
 DATASET_REGISTRY.register(
-    CSTRFaultAdapter(
-        name="cstr_closed_loop_fd",
-        subdir="fd_close",
-        feature_count=7,
-        description="Closed-loop CSTR fault-diagnosis dataset.",
-    ),
+    CSTRFaultAdapter.closed_loop(),
     aliases=("cstr_fd_close", "cstr/fd_close", "CSTR/fd_close"),
     replace=True,
 )
