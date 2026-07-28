@@ -1,0 +1,1097 @@
+"""P8 输入调度确定性半径与有限 episode 动态阈值的公开行为测试。
+
+文件用途：
+    通过可手算的小矩阵和有限 episode 验证输入包络、reference-age 包络、P7/P6 同坐标
+    传播、family-wise conformal 校准及最终阈值分账。
+主要职责：
+    只从 ``joff.evaluation`` 公开入口测试 P8 行为；不测试 P9 归因/隔离、真实认证后端或
+    CSTR 故障性能。
+关键输入与输出：
+    输入为仅正常 estimate/detection-calibration 合成记录、冻结分支和小型算子包；输出
+    为包络值、``gamma_anc``、``gamma_det``、episode maximum、``q_det`` 和报警判决。
+依赖与副作用：
+    依赖 NumPy、pytest 与 Joff 公开评估接口；不读写文件、不访问网络、不修改随机状态。
+重要约束：
+    包络和尺度只能读 estimate；``q_det`` 只能读 detection calibration；归因校准和故障
+    数据不得进入任何 P8 拟合。所有数值均为代码验证夹具，不是论文实验结果。
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+from dataclasses import replace
+from typing import cast
+
+import numpy as np
+import pytest
+import torch
+
+from joff.evaluation import (
+    BranchBank,
+    BranchKind,
+    BranchOperator,
+    CalibrationStatus,
+    ContextAgeEnvelope,
+    DetectionScore,
+    DeterministicRadius,
+    DeterministicRadiusGenerator,
+    DynamicThresholdGenerator,
+    EpisodeMaxCalibrator,
+    InputDependentEnvelope,
+    InputDescriptor,
+    JacobianSemantics,
+    MonitorStage,
+    NominalJVPAssembler,
+    OperatorAffineImage,
+    OperatorAssemblyBudget,
+    OperatorBundle,
+    OperatorEnclosure,
+    OperatorNorm,
+    OperatorPath,
+    OperatorStatus,
+    ScoreCoordinate,
+    ThresholdStatus,
+)
+
+
+def _descriptor(
+    *,
+    region: str = "nominal",
+    u: float = 0.0,
+    delta_u: float = 0.0,
+    delta_xi: float = 0.0,
+) -> InputDescriptor:
+    """构造一维向量描述符，使三个范数可直接手算。"""
+
+    return InputDescriptor(
+        region=region,
+        u=(u,),
+        delta_u=(delta_u,),
+        delta_xi=(delta_xi,),
+    )
+
+
+def _freeze_guard_generator(
+    *,
+    time_indices: tuple[int, ...] = (0,),
+    mode_names: tuple[str, ...] = ("steady",),
+    include_omnibus: bool = False,
+) -> DynamicThresholdGenerator:
+    """构造只含 guard 的 estimate-only score map，供 calibration 边界测试复用。"""
+
+    descriptors = tuple(_descriptor(u=float(index)) for index in range(4))
+    input_envelope = InputDependentEnvelope.fit(
+        descriptors,
+        np.ones(4),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_region_samples=4,
+        source_hash="1" * 64,
+    )
+    age_envelope = ContextAgeEnvelope.fit(
+        reference_ages=(0,),
+        drift_magnitudes=(0.0,),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_samples_per_age=1,
+        source_hash="2" * 64,
+    )
+    guard = BranchOperator(
+        name="guard",
+        kind=BranchKind.GUARD,
+        input_dim=1,
+        matrix=((1.0,),),
+        anchor_radius=0.0,
+    )
+    branches = (guard,)
+    branch_scales = {"guard": 1.0}
+    if include_omnibus:
+        omnibus = BranchOperator(
+            name="omnibus",
+            kind=BranchKind.OMNIBUS,
+            input_dim=1,
+            matrix=((1.0,),),
+            anchor_radius=0.0,
+        )
+        branches = (guard, omnibus)
+        branch_scales["omnibus"] = 1.0
+    return DynamicThresholdGenerator.freeze(
+        branch_bank=BranchBank(branches),
+        candidate_hash="3" * 64,
+        input_envelope=input_envelope,
+        context_age_envelope=age_envelope,
+        branch_scales=branch_scales,
+        threshold_floor=1.0,
+        normalization_source_hash="4" * 64,
+        time_indices=time_indices,
+        mode_names=mode_names,
+        reset_state_hash="5" * 64,
+        stage=MonitorStage.ESTIMATE,
+    )
+
+
+def _single_step_operator_bundle(
+    *,
+    episode_id: str,
+    start_raw_index: int,
+    stage: MonitorStage = MonitorStage.DETECTION_CALIBRATION,
+) -> OperatorBundle:
+    """构造与一维 guard branch 对齐的权威 P6 单步算子包。"""
+
+    return NominalJVPAssembler(
+        resource_budget=OperatorAssemblyBudget(
+            max_workspace_elements=100,
+            max_persisted_elements=100,
+        )
+    ).assemble(
+        transition_jacobians=torch.zeros((1, 1, 1), dtype=torch.float64),
+        semantics=JacobianSemantics.NOMINAL_POINTWISE,
+        path=OperatorPath(
+            monitor_identity="p8-test-monitor",
+            episode_id=episode_id,
+            stage=stage,
+            start_raw_index=start_raw_index,
+            raw_indices=(start_raw_index + 1,),
+        ),
+    )
+
+
+def _calibration_score(
+    generator: DynamicThresholdGenerator,
+    *,
+    episode_id: str,
+    coordinate: ScoreCoordinate,
+    normalized_value: float,
+    stage: MonitorStage = MonitorStage.DETECTION_CALIBRATION,
+) -> DetectionScore:
+    """通过冻结 generator 生成内部一致、可手算的 detection-calibration 分数。"""
+
+    branch = generator.branch_bank.branch(coordinate.branch_name)
+    operator_bundle = _single_step_operator_bundle(
+        episode_id=episode_id,
+        start_raw_index=coordinate.time_index,
+        stage=stage,
+    )
+    radius = DeterministicRadiusGenerator(
+        input_envelope=generator.input_envelope,
+        context_age_envelope=generator.context_age_envelope,
+    ).compute(
+        branch=branch,
+        operator_bundle=operator_bundle,
+        descriptors=(_descriptor(),),
+        reference_ages=(0,),
+        score_map_hash=generator.content_hash,
+    )
+    return generator.score(
+        statistic=branch.anchor_radius
+        + radius.gamma_deterministic
+        + generator.scale_for(coordinate.branch_name) * normalized_value,
+        radius=radius,
+        time_index=coordinate.time_index,
+        mode=coordinate.mode,
+    )
+
+
+@pytest.mark.parametrize("value", [True, cast(float, "1.0")])
+def test_input_descriptor_rejects_implicit_numeric_coercion(value: float) -> None:
+    """运行时描述符不得把 bool 或数字字符串悄悄转换为浮点输入。"""
+
+    with pytest.raises(TypeError, match="numeric"):
+        InputDescriptor(
+            region="nominal",
+            u=(value,),
+            delta_u=(0.0,),
+            delta_xi=(0.0,),
+        )
+
+
+def test_input_envelope_uses_all_scheduled_features_and_estimate_only() -> None:
+    """输入、输入变化和外生变化都必须改变 estimate-only 非负分位包络。"""
+
+    descriptors = (
+        _descriptor(),
+        _descriptor(u=1.0),
+        _descriptor(u=2.0),
+        _descriptor(delta_u=1.0),
+        _descriptor(delta_u=2.0),
+        _descriptor(delta_xi=1.0),
+        _descriptor(delta_xi=2.0),
+        _descriptor(u=1.0, delta_u=1.0, delta_xi=1.0),
+    )
+    magnitudes = np.asarray(
+        [
+            1.0
+            + 2.0 * abs(item.u[0])
+            + 3.0 * abs(item.delta_u[0])
+            + 4.0 * abs(item.delta_xi[0])
+            for item in descriptors
+        ],
+        dtype=np.float64,
+    )
+
+    envelope = InputDependentEnvelope.fit(
+        descriptors,
+        magnitudes,
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_region_samples=4,
+        source_hash="a" * 64,
+    )
+
+    baseline = envelope.evaluate(_descriptor())
+    changed_u = envelope.evaluate(_descriptor(u=1.0))
+    changed_delta_u = envelope.evaluate(_descriptor(delta_u=1.0))
+    changed_delta_xi = envelope.evaluate(_descriptor(delta_xi=1.0))
+    assert baseline.supported
+    assert baseline.value == pytest.approx(1.0)
+    assert changed_u.value == pytest.approx(3.0)
+    assert changed_delta_u.value == pytest.approx(4.0)
+    assert changed_delta_xi.value == pytest.approx(5.0)
+
+    with pytest.raises(ValueError, match="estimate"):
+        InputDependentEnvelope.fit(
+            descriptors,
+            magnitudes,
+            stage=MonitorStage.DETECTION_CALIBRATION,
+            quantile=0.5,
+            minimum_region_samples=4,
+            source_hash="b" * 64,
+        )
+    with pytest.raises(ValueError, match="budget"):
+        InputDependentEnvelope.fit(
+            descriptors,
+            magnitudes,
+            stage=MonitorStage.ESTIMATE,
+            quantile=0.5,
+            minimum_region_samples=4,
+            source_hash="b" * 64,
+            maximum_solver_nonzeros=8,
+        )
+
+
+def test_input_envelope_fails_closed_outside_estimate_descriptor_support() -> None:
+    """未知 region 或超出 estimate 范围时不得静默线性外推。"""
+
+    descriptors = tuple(_descriptor(u=float(index)) for index in range(4))
+    envelope = InputDependentEnvelope.fit(
+        descriptors,
+        np.asarray([1.0, 2.0, 3.0, 4.0]),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_region_samples=4,
+        source_hash="c" * 64,
+    )
+
+    unknown_region = envelope.evaluate(_descriptor(region="unseen"))
+    outside_range = envelope.evaluate(_descriptor(u=5.0))
+
+    assert not unknown_region.supported
+    assert unknown_region.value == float("inf")
+    assert "region" in (unknown_region.reason or "").lower()
+    assert not outside_range.supported
+    assert outside_range.value == float("inf")
+    assert "outside estimate support" in (outside_range.reason or "")
+
+
+def test_context_age_envelope_is_monotone_and_fails_closed_beyond_frozen_age() -> None:
+    """reference-age 包络不能随年龄下降，未覆盖年龄必须禁用阈值决定。"""
+
+    envelope = ContextAgeEnvelope.fit(
+        reference_ages=(0, 0, 1, 1, 2, 2),
+        drift_magnitudes=(1.0, 2.0, 3.0, 3.0, 1.0, 1.0),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_samples_per_age=2,
+        source_hash="d" * 64,
+    )
+
+    assert envelope.evaluate(0).value == pytest.approx(2.0)
+    assert envelope.evaluate(1).value == pytest.approx(3.0)
+    assert envelope.evaluate(2).value == pytest.approx(3.0)
+    unsupported = envelope.evaluate(3)
+    assert not unsupported.supported
+    assert unsupported.value == float("inf")
+    assert "maximum" in (unsupported.reason or "").lower()
+
+    with pytest.raises(ValueError, match="estimate"):
+        ContextAgeEnvelope.fit(
+            reference_ages=(0, 0),
+            drift_magnitudes=(1.0, 2.0),
+            stage=MonitorStage.ATTRIBUTION_CALIBRATION,
+            quantile=0.5,
+            minimum_samples_per_age=2,
+            source_hash="e" * 64,
+        )
+
+
+def test_deterministic_radius_uses_the_same_branch_operator_for_each_block() -> None:
+    """``gamma_det`` 必须由同一个 ``L_b`` 传播每个 ``G_nu E_j`` block column。"""
+
+    input_descriptors = tuple(_descriptor(u=float(index)) for index in range(4))
+    input_envelope = InputDependentEnvelope.fit(
+        input_descriptors,
+        np.ones(4),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_region_samples=4,
+        source_hash="f" * 64,
+    )
+    age_envelope = ContextAgeEnvelope.fit(
+        reference_ages=(0, 0, 1, 1),
+        drift_magnitudes=(0.5, 0.5, 1.0, 1.0),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_samples_per_age=2,
+        source_hash="1" * 64,
+    )
+    branch = BranchOperator(
+        name="scaled",
+        kind=BranchKind.MATCHED,
+        input_dim=2,
+        matrix=((2.0, 0.0), (0.0, 3.0)),
+        anchor_radius=4.0,
+    )
+    path = OperatorPath(
+        monitor_identity="monitor-v1",
+        episode_id="calibration-episode-1",
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        start_raw_index=0,
+        raw_indices=(1, 2),
+    )
+    bundle = NominalJVPAssembler(
+        resource_budget=OperatorAssemblyBudget(
+            max_workspace_elements=100,
+            max_persisted_elements=100,
+        )
+    ).assemble(
+        transition_jacobians=torch.zeros((2, 1, 1), dtype=torch.float64),
+        semantics=JacobianSemantics.NOMINAL_POINTWISE,
+        path=path,
+    )
+    enclosure = OperatorEnclosure(
+        images=(
+            OperatorAffineImage(
+                operator_name="g_nu",
+                center=bundle.g_nu,
+                generators=(((1.0, 0.0), (0.0, 1.0)),),
+            ),
+            OperatorAffineImage(
+                operator_name="g_0",
+                center=bundle.g_0,
+                generators=(((0.0,), (0.0,)),),
+            ),
+        ),
+        error_radius=1.0,
+        norm=OperatorNorm.SPECTRAL_L2,
+        shared_uncertainty_id=bundle.shared_uncertainty_id,
+        source="verified-fixture",
+        certificate_id="p8-certified-radius",
+        verified_remainder=True,
+    )
+    certified_bundle = replace(
+        bundle,
+        status=OperatorStatus.CERTIFIED,
+        status_reason="verified fixture",
+        enclosure=enclosure,
+        persisted_elements=bundle.persisted_elements + enclosure.persisted_elements,
+    )
+
+    result = DeterministicRadiusGenerator(
+        input_envelope=input_envelope,
+        context_age_envelope=age_envelope,
+    ).compute(
+        branch=branch,
+        operator_bundle=bundle,
+        descriptors=(_descriptor(u=0.0), _descriptor(u=1.0)),
+        reference_ages=(0, 1),
+        score_map_hash="a" * 64,
+    )
+    certified = DeterministicRadiusGenerator(
+        input_envelope=input_envelope,
+        context_age_envelope=age_envelope,
+    ).compute(
+        branch=branch,
+        operator_bundle=certified_bundle,
+        descriptors=(_descriptor(u=0.0), _descriptor(u=1.0)),
+        reference_ages=(0, 1),
+        score_map_hash="a" * 64,
+    )
+    unsupported = DeterministicRadiusGenerator(
+        input_envelope=input_envelope,
+        context_age_envelope=age_envelope,
+    ).compute(
+        branch=branch,
+        operator_bundle=bundle,
+        descriptors=(_descriptor(u=0.0), _descriptor(u=4.0)),
+        reference_ages=(0, 1),
+        score_map_hash="a" * 64,
+    )
+    overflow_bundle = replace(
+        bundle,
+        g_nu=((2.0, 0.0), (0.0, 1.0)),
+    )
+    overflowing_branch = BranchOperator(
+        name="overflowing",
+        kind=BranchKind.MATCHED,
+        input_dim=2,
+        matrix=((1e308, 1e308),),
+        anchor_radius=0.0,
+    )
+    numerical_fallback = DeterministicRadiusGenerator(
+        input_envelope=input_envelope,
+        context_age_envelope=age_envelope,
+    ).compute(
+        branch=overflowing_branch,
+        operator_bundle=overflow_bundle,
+        descriptors=(_descriptor(u=0.0), _descriptor(u=1.0)),
+        reference_ages=(0, 1),
+        score_map_hash="a" * 64,
+    )
+
+    assert result.supported
+    assert result.operator_status is OperatorStatus.NOMINAL
+    assert result.gamma_anchor == pytest.approx(4.0)
+    assert result.source_envelopes == pytest.approx((1.5, 2.0))
+    assert result.block_norms == pytest.approx((2.0, 3.0))
+    assert result.gamma_deterministic == pytest.approx(9.0)
+    assert certified.operator_status is OperatorStatus.CERTIFIED
+    assert certified.block_norms == pytest.approx((4.0, 6.0))
+    assert certified.gamma_deterministic == pytest.approx(18.0)
+    with pytest.raises(ValueError, match="derived"):
+        replace(result, gamma_deterministic=0.0)
+    with pytest.raises(ValueError, match="operator bundle"):
+        replace(result, operator_bundle_hash="0" * 64)
+    tiny_radius = replace(
+        result,
+        gamma_deterministic=1e-13,
+        source_envelopes=(1e-13, 0.0),
+        block_norms=(1.0, 0.0),
+    )
+    with pytest.raises(ValueError, match="derived"):
+        replace(tiny_radius, gamma_deterministic=0.0)
+    assert not unsupported.supported
+    assert unsupported.gamma_deterministic == float("inf")
+    assert "outside estimate support" in (unsupported.reason or "")
+    assert not numerical_fallback.supported
+    assert numerical_fallback.gamma_deterministic == float("inf")
+    assert "numerical" in (numerical_fallback.reason or "").lower()
+    assert DeterministicRadius.from_dict(
+        json.loads(json.dumps(result.to_dict(), allow_nan=False))
+    ).to_dict() == result.to_dict()
+    assert DeterministicRadius.from_dict(
+        json.loads(json.dumps(unsupported.to_dict(), allow_nan=False))
+    ).to_dict() == unsupported.to_dict()
+
+
+def test_episode_max_calibration_uses_finite_rank_and_returns_infinity_below_resolution() -> None:
+    """校准必须先取 family-wise episode maximum，再应用有限样本秩规则。"""
+
+    generator = _freeze_guard_generator(
+        time_indices=(0, 1),
+        mode_names=("steady", "hybrid"),
+        include_omnibus=True,
+    )
+    coordinates = generator.expected_coordinates
+    episodes: dict[str, tuple[DetectionScore, ...]] = {}
+    for episode_index, episode_maximum in enumerate((1.0, 2.0, 3.0, 4.0), start=1):
+        episode_id = f"det-cal-{episode_index}"
+        scores = []
+        for coordinate_index, coordinate in enumerate(coordinates):
+            normalized_value = (
+                episode_maximum
+                if coordinate_index == len(coordinates) - 1
+                else 0.1 * episode_index
+            )
+            scores.append(
+                _calibration_score(
+                    generator,
+                    episode_id=episode_id,
+                    coordinate=coordinate,
+                    normalized_value=normalized_value,
+                )
+            )
+        episodes[episode_id] = tuple(scores)
+
+    finite = EpisodeMaxCalibrator.fit(
+        episodes,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.25,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="4" * 64,
+        reserved_attribution_source_hash="6" * 64,
+        reserved_attribution_episode_ids=("attr-cal-1",),
+    )
+    below_resolution = EpisodeMaxCalibrator.fit(
+        episodes,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.1,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="4" * 64,
+        reserved_attribution_source_hash="6" * 64,
+        reserved_attribution_episode_ids=("attr-cal-1",),
+    )
+
+    assert finite.status is CalibrationStatus.READY
+    assert finite.episode_maxima == pytest.approx((1.0, 2.0, 3.0, 4.0))
+    assert finite.rank == 4
+    assert finite.quantile == pytest.approx(4.0)
+    assert finite.risk_resolution == pytest.approx(0.2)
+    assert below_resolution.status is CalibrationStatus.INSUFFICIENT_RESOLUTION
+    assert below_resolution.rank == 5
+    assert below_resolution.quantile == float("inf")
+    replayed_infinite = EpisodeMaxCalibrator.from_dict(
+        json.loads(json.dumps(below_resolution.to_dict(), allow_nan=False))
+    )
+    assert replayed_infinite.to_dict() == below_resolution.to_dict()
+    first_score = episodes["det-cal-1"][0]
+    assert DetectionScore.from_dict(
+        json.loads(json.dumps(first_score.to_dict(), allow_nan=False))
+    ).to_dict() == first_score.to_dict()
+
+    with pytest.raises(ValueError, match="detection calibration"):
+        EpisodeMaxCalibrator.fit(
+            episodes,
+            score_map=generator,
+            stage=MonitorStage.ATTRIBUTION_CALIBRATION,
+            error_rate=0.25,
+            episode_definition_hash="a" * 64,
+            exchangeability_assumption_hash="b" * 64,
+            source_hash="4" * 64,
+            reserved_attribution_source_hash="6" * 64,
+            reserved_attribution_episode_ids=("attr-cal-1",),
+        )
+
+
+def test_calibration_rejects_scores_with_forged_frozen_branch_components() -> None:
+    """正确 hash 不能替代对 branch anchor、尺度和半径证据的实际绑定。"""
+
+    generator = _freeze_guard_generator()
+    (coordinate,) = generator.expected_coordinates
+    forged_episodes: dict[str, tuple[DetectionScore, ...]] = {}
+    for index in range(1, 5):
+        episode_id = f"det-cal-{index}"
+        forged_bundle = _single_step_operator_bundle(
+            episode_id=episode_id,
+            start_raw_index=coordinate.time_index,
+        )
+        valid_radius = DeterministicRadiusGenerator(
+            input_envelope=generator.input_envelope,
+            context_age_envelope=generator.context_age_envelope,
+        ).compute(
+            branch=generator.branch_bank.branch(coordinate.branch_name),
+            operator_bundle=forged_bundle,
+            descriptors=(_descriptor(),),
+            reference_ages=(0,),
+            score_map_hash=generator.content_hash,
+        )
+        forged_radius = replace(valid_radius, gamma_anchor=1.0)
+        forged_episodes[episode_id] = (
+            DetectionScore.from_components(
+                radius=forged_radius,
+                coordinate=coordinate,
+                statistic=float(index),
+                scale=2.0,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="frozen score-map components"):
+        EpisodeMaxCalibrator.fit(
+            forged_episodes,
+            score_map=generator,
+            stage=MonitorStage.DETECTION_CALIBRATION,
+            error_rate=0.25,
+            episode_definition_hash="a" * 64,
+            exchangeability_assumption_hash="b" * 64,
+            source_hash="4" * 64,
+            reserved_attribution_source_hash="6" * 64,
+            reserved_attribution_episode_ids=("attr-cal-1",),
+        )
+
+
+def test_detection_calibration_rejects_fault_stage_operator_paths() -> None:
+    """调用方自报 calibration stage 不能掩盖分数实际来自冻结故障测试。"""
+
+    generator = _freeze_guard_generator()
+    (coordinate,) = generator.expected_coordinates
+    valid_episodes = {
+        f"stage-check-{index}": (
+            _calibration_score(
+                generator,
+                episode_id=f"stage-check-{index}",
+                coordinate=coordinate,
+                normalized_value=float(index),
+            ),
+        )
+        for index in range(1, 5)
+    }
+    fault_stage_episodes = {
+        f"stage-check-{index}": (
+            _calibration_score(
+                generator,
+                episode_id=f"stage-check-{index}",
+                coordinate=coordinate,
+                normalized_value=float(index),
+                stage=MonitorStage.FROZEN_FAULT_TEST,
+            ),
+        )
+        for index in range(1, 5)
+    }
+
+    with pytest.raises(ValueError, match="detection calibration stage"):
+        EpisodeMaxCalibrator.fit(
+            fault_stage_episodes,
+            score_map=generator,
+            stage=MonitorStage.DETECTION_CALIBRATION,
+            error_rate=0.25,
+            episode_definition_hash="a" * 64,
+            exchangeability_assumption_hash="b" * 64,
+            source_hash="4" * 64,
+            reserved_attribution_source_hash="6" * 64,
+            reserved_attribution_episode_ids=("attr-cal-1",),
+        )
+
+    valid_calibration = EpisodeMaxCalibrator.fit(
+        valid_episodes,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.25,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="4" * 64,
+        reserved_attribution_source_hash="6" * 64,
+        reserved_attribution_episode_ids=("attr-cal-1",),
+    )
+    forged_scores = tuple(
+        fault_stage_episodes[episode_id]
+        for episode_id in valid_calibration.episode_ids
+    )
+    with pytest.raises(ValueError, match="detection calibration stage"):
+        replace(valid_calibration, episode_scores=forged_scores)
+
+    forged_payload = valid_calibration.to_dict()
+    forged_payload["episode_scores"] = [
+        [score.to_dict() for score in scores] for scores in forged_scores
+    ]
+    with pytest.raises(ValueError, match="detection calibration stage"):
+        EpisodeMaxCalibrator.from_dict(forged_payload)
+
+
+def test_score_validation_replays_frozen_source_envelopes() -> None:
+    """同时伪造 source envelope 与派生和也不能绕过 estimate 包络重放。"""
+
+    generator = _freeze_guard_generator()
+    (coordinate,) = generator.expected_coordinates
+    valid_score = _calibration_score(
+        generator,
+        episode_id="det-cal-source",
+        coordinate=coordinate,
+        normalized_value=1.0,
+    )
+    forged_source = valid_score.radius.source_envelopes[0] + 10.0
+    forged_radius = replace(
+        valid_score.radius,
+        source_envelopes=(forged_source,),
+        gamma_deterministic=forged_source * valid_score.radius.block_norms[0],
+    )
+    forged_score = DetectionScore.from_components(
+        radius=forged_radius,
+        coordinate=coordinate,
+        statistic=valid_score.statistic,
+        scale=valid_score.scale,
+    )
+
+    with pytest.raises(ValueError, match="frozen score-map components"):
+        generator.validate_score(forged_score)
+
+
+def test_dynamic_threshold_separates_components_and_uses_strict_exceedance() -> None:
+    """最终阈值必须分账，等于阈值不报警，缺失校准证据时返回正无穷。"""
+
+    descriptors = tuple(_descriptor(u=float(index)) for index in range(4))
+    input_envelope = InputDependentEnvelope.fit(
+        descriptors,
+        np.ones(4),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_region_samples=4,
+        source_hash="5" * 64,
+    )
+    age_envelope = ContextAgeEnvelope.fit(
+        reference_ages=(0, 0),
+        drift_magnitudes=(1.0, 1.0),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_samples_per_age=2,
+        source_hash="6" * 64,
+    )
+    guard = BranchOperator(
+        name="guard",
+        kind=BranchKind.GUARD,
+        input_dim=1,
+        matrix=((1.0,),),
+        anchor_radius=1.0,
+    )
+    generator = DynamicThresholdGenerator.freeze(
+        branch_bank=BranchBank((guard,)),
+        candidate_hash="7" * 64,
+        input_envelope=input_envelope,
+        context_age_envelope=age_envelope,
+        branch_scales={"guard": 2.0},
+        threshold_floor=12.0,
+        normalization_source_hash="0" * 64,
+        time_indices=(0,),
+        mode_names=("steady",),
+        reset_state_hash="8" * 64,
+        stage=MonitorStage.ESTIMATE,
+    )
+    coordinate = ScoreCoordinate(
+        time_index=0,
+        mode="steady",
+        branch_name="guard",
+    )
+    assert generator.expected_coordinates == (coordinate,)
+    calibration_episodes = {
+        f"episode-{index}": (
+            _calibration_score(
+                generator,
+                episode_id=f"episode-{index}",
+                coordinate=coordinate,
+                normalized_value=float(index),
+            ),
+        )
+        for index in range(1, 5)
+    }
+    calibration = EpisodeMaxCalibrator.fit(
+        calibration_episodes,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.25,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="9" * 64,
+        reserved_attribution_source_hash="c" * 64,
+        reserved_attribution_episode_ids=("attr-target-1",),
+    )
+    target_bundle = _single_step_operator_bundle(
+        episode_id="target-episode",
+        start_raw_index=0,
+    )
+    radius = DeterministicRadiusGenerator(
+        input_envelope=generator.input_envelope,
+        context_age_envelope=generator.context_age_envelope,
+    ).compute(
+        branch=guard,
+        operator_bundle=target_bundle,
+        descriptors=(_descriptor(),),
+        reference_ages=(0,),
+        score_map_hash=generator.content_hash,
+    )
+    with pytest.raises(ValueError, match="branch"):
+        generator.score(
+            statistic=12.0,
+            radius=replace(radius, gamma_anchor=2.0),
+            time_index=0,
+            mode="steady",
+        )
+
+    tie = generator.evaluate(
+        statistic=12.0,
+        radius=radius,
+        time_index=0,
+        mode="steady",
+        calibration=calibration,
+        episode_definition_hash="a" * 64,
+    )
+    strict_exceedance = generator.evaluate(
+        statistic=12.0001,
+        radius=radius,
+        time_index=0,
+        mode="steady",
+        calibration=calibration,
+        episode_definition_hash="a" * 64,
+    )
+    tiny_strict_exceedance = generator.evaluate(
+        statistic=12.0 + 2e-13,
+        radius=radius,
+        time_index=0,
+        mode="steady",
+        calibration=calibration,
+        episode_definition_hash="a" * 64,
+    )
+    with pytest.raises(ValueError, match="strict alarm"):
+        replace(
+            tiny_strict_exceedance,
+            threshold=12.0 + 5e-13,
+            alarm=False,
+        )
+    missing_calibration = generator.evaluate(
+        statistic=100.0,
+        radius=radius,
+        time_index=0,
+        mode="steady",
+        calibration=None,
+        episode_definition_hash="a" * 64,
+    )
+    wrong_generator = replace(generator, candidate_hash="d" * 64)
+    wrong_calibration = EpisodeMaxCalibrator.fit(
+        {
+            f"other-{index}": (
+                _calibration_score(
+                    wrong_generator,
+                    episode_id=f"other-{index}",
+                    coordinate=coordinate,
+                    normalized_value=float(index),
+                ),
+            )
+            for index in range(1, 5)
+        },
+        score_map=wrong_generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.25,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="e" * 64,
+        reserved_attribution_source_hash="f" * 64,
+        reserved_attribution_episode_ids=("attr-other-1",),
+    )
+    wrong_identity = generator.evaluate(
+        statistic=100.0,
+        radius=radius,
+        time_index=0,
+        mode="steady",
+        calibration=wrong_calibration,
+        episode_definition_hash="a" * 64,
+    )
+
+    assert tie.status is ThresholdStatus.READY
+    assert generator.normalization_source_hash == "0" * 64
+    assert tie.gamma_anchor == pytest.approx(1.0)
+    assert tie.gamma_deterministic == pytest.approx(2.0)
+    assert tie.scale == pytest.approx(2.0)
+    assert tie.calibration_quantile == pytest.approx(4.0)
+    assert tie.calibration_component == pytest.approx(8.0)
+    assert tie.threshold == pytest.approx(12.0)
+    assert not tie.alarm
+    assert strict_exceedance.alarm
+    assert tiny_strict_exceedance.alarm
+    assert missing_calibration.status is ThresholdStatus.DISABLED
+    assert missing_calibration.threshold == float("inf")
+    assert not missing_calibration.alarm
+    assert wrong_identity.status is ThresholdStatus.DISABLED
+    assert wrong_identity.threshold == float("inf")
+
+    replayed_generator = DynamicThresholdGenerator.from_dict(
+        json.loads(json.dumps(generator.to_dict()))
+    )
+    replayed_calibration = EpisodeMaxCalibrator.from_dict(
+        json.loads(json.dumps(calibration.to_dict()))
+    )
+    replayed_result = type(tie).from_dict(json.loads(json.dumps(tie.to_dict())))
+    replayed_disabled = type(missing_calibration).from_dict(
+        json.loads(
+            json.dumps(missing_calibration.to_dict(), allow_nan=False)
+        )
+    )
+    assert replayed_generator.to_dict() == generator.to_dict()
+    assert replayed_generator.content_hash == generator.content_hash
+    assert replayed_calibration.to_dict() == calibration.to_dict()
+    assert replayed_result.to_dict() == tie.to_dict()
+    assert replayed_disabled.to_dict() == missing_calibration.to_dict()
+
+    tampered_calibration = copy.deepcopy(calibration.to_dict())
+    tampered_calibration["quantile"] = 3.5
+    tampered_result = copy.deepcopy(tie.to_dict())
+    tampered_result["alarm"] = True
+    unknown_generator_field = copy.deepcopy(generator.to_dict())
+    unknown_generator_field["calibration_quantile"] = 4.0
+    for owner, payload in (
+        (EpisodeMaxCalibrator, tampered_calibration),
+        (type(tie), tampered_result),
+        (DynamicThresholdGenerator, unknown_generator_field),
+    ):
+        with pytest.raises(ValueError):
+            owner.from_dict(payload)
+
+
+def test_incomplete_episode_family_fails_closed_instead_of_using_marginal_scores() -> None:
+    """漏掉任一可选择坐标时不得把剩余边际分数当作 family-wise 校准。"""
+
+    generator = _freeze_guard_generator(time_indices=(0, 1))
+    first, second = generator.expected_coordinates
+    incomplete = {
+        "episode-1": (
+            _calibration_score(
+                generator,
+                episode_id="episode-1",
+                coordinate=first,
+                normalized_value=1.0,
+            ),
+        )
+    }
+
+    calibration = EpisodeMaxCalibrator.fit(
+        incomplete,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.5,
+        episode_definition_hash="d" * 64,
+        exchangeability_assumption_hash="e" * 64,
+        source_hash="c" * 64,
+        reserved_attribution_source_hash="f" * 64,
+        reserved_attribution_episode_ids=("attribution-episode-1",),
+    )
+
+    assert calibration.status is CalibrationStatus.INCOMPLETE_EVIDENCE
+    assert calibration.quantile == float("inf")
+    assert "complete score family" in (calibration.reason or "")
+
+    with pytest.raises(ValueError, match="attribution source"):
+        EpisodeMaxCalibrator.fit(
+            incomplete,
+            score_map=generator,
+            stage=MonitorStage.DETECTION_CALIBRATION,
+            error_rate=0.5,
+            episode_definition_hash="d" * 64,
+            exchangeability_assumption_hash="e" * 64,
+            source_hash="c" * 64,
+            reserved_attribution_source_hash="c" * 64,
+            reserved_attribution_episode_ids=("attribution-episode-1",),
+        )
+    with pytest.raises(ValueError, match="episode"):
+        EpisodeMaxCalibrator.fit(
+            incomplete,
+            score_map=generator,
+            stage=MonitorStage.DETECTION_CALIBRATION,
+            error_rate=0.5,
+            episode_definition_hash="d" * 64,
+            exchangeability_assumption_hash="e" * 64,
+            source_hash="c" * 64,
+            reserved_attribution_source_hash="f" * 64,
+            reserved_attribution_episode_ids=("episode-1",),
+        )
+
+
+def test_finite_rank_boundary_is_attainable_without_rounding_to_infinity() -> None:
+    """19 个 episode 的 ``alpha=0.05`` 应有限，略低于 0.05 才返回正无穷。"""
+
+    generator = _freeze_guard_generator()
+    (coordinate,) = generator.expected_coordinates
+    episodes = {
+        f"episode-{index:02d}": (
+            _calibration_score(
+                generator,
+                episode_id=f"episode-{index:02d}",
+                coordinate=coordinate,
+                normalized_value=float(index),
+            ),
+        )
+        for index in range(1, 20)
+    }
+
+    attainable = EpisodeMaxCalibrator.fit(
+        episodes,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.05,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="f" * 64,
+        reserved_attribution_source_hash="c" * 64,
+        reserved_attribution_episode_ids=("attr-cal-1",),
+    )
+    unattainable = EpisodeMaxCalibrator.fit(
+        episodes,
+        score_map=generator,
+        stage=MonitorStage.DETECTION_CALIBRATION,
+        error_rate=0.049,
+        episode_definition_hash="a" * 64,
+        exchangeability_assumption_hash="b" * 64,
+        source_hash="f" * 64,
+        reserved_attribution_source_hash="c" * 64,
+        reserved_attribution_episode_ids=("attr-cal-1",),
+    )
+
+    assert attainable.status is CalibrationStatus.READY
+    assert attainable.rank == 19
+    assert attainable.quantile == pytest.approx(19.0)
+    assert unattainable.status is CalibrationStatus.INSUFFICIENT_RESOLUTION
+    assert unattainable.rank == 20
+    assert unattainable.quantile == float("inf")
+
+
+def test_score_map_freeze_requires_exact_positive_estimate_normalization() -> None:
+    """启用 branch 必须恰有一个 estimate 来源的正尺度，floor 也必须严格为正。"""
+
+    descriptors = tuple(_descriptor(u=float(index)) for index in range(4))
+    input_envelope = InputDependentEnvelope.fit(
+        descriptors,
+        np.ones(4),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_region_samples=4,
+        source_hash="1" * 64,
+    )
+    age_envelope = ContextAgeEnvelope.fit(
+        reference_ages=(0,),
+        drift_magnitudes=(0.0,),
+        stage=MonitorStage.ESTIMATE,
+        quantile=0.5,
+        minimum_samples_per_age=1,
+        source_hash="2" * 64,
+    )
+    guard = BranchOperator(
+        name="guard",
+        kind=BranchKind.GUARD,
+        input_dim=1,
+        matrix=((1.0,),),
+        anchor_radius=0.0,
+    )
+    branch_bank = BranchBank((guard,))
+
+    def freeze(
+        branch_scales: dict[str, float],
+        threshold_floor: float,
+    ) -> DynamicThresholdGenerator:
+        """用共同 estimate 证据冻结待验证的尺度/floor 配置。"""
+
+        return DynamicThresholdGenerator.freeze(
+            branch_bank=branch_bank,
+            candidate_hash="3" * 64,
+            input_envelope=input_envelope,
+            context_age_envelope=age_envelope,
+            branch_scales=branch_scales,
+            threshold_floor=threshold_floor,
+            normalization_source_hash="4" * 64,
+            time_indices=(0,),
+            mode_names=("steady",),
+            reset_state_hash="5" * 64,
+            stage=MonitorStage.ESTIMATE,
+        )
+
+    with pytest.raises(ValueError):
+        freeze({"guard": 0.0}, 1.0)
+    with pytest.raises(ValueError, match="exactly match"):
+        freeze({"guard": 1.0, "injected": 1.0}, 1.0)
+    with pytest.raises(ValueError, match="positive"):
+        freeze({"guard": 1.0}, 0.0)
+    with pytest.raises(TypeError, match="floor"):
+        freeze({"guard": 1.0}, True)
+    with pytest.raises(TypeError, match="mode"):
+        DynamicThresholdGenerator.freeze(
+            branch_bank=branch_bank,
+            candidate_hash="3" * 64,
+            input_envelope=input_envelope,
+            context_age_envelope=age_envelope,
+            branch_scales={"guard": 1.0},
+            threshold_floor=1.0,
+            normalization_source_hash="4" * 64,
+            time_indices=(0,),
+            mode_names=("steady", cast(str, 1)),
+            reset_state_hash="5" * 64,
+            stage=MonitorStage.ESTIMATE,
+        )
