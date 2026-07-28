@@ -2,25 +2,42 @@
 
 文件用途：
     汇总通用回归、分类、故障检测、Koopman 贡献评估器，以及论文 P5 受保护参考对象和
-    P6 联合认证堆叠算子和 P7 white-space 后滤波，为 ``joff.evaluation`` 提供稳定导入
-    入口。
+    P6 联合认证堆叠算子、P7 white-space 后滤波和 P8 输入调度有限 episode 动态阈值，
+    为 ``joff.evaluation`` 提供稳定导入入口。
 主要职责：
     注册内置 evaluator 并重导出公开配置、状态和报告；本文件不执行评估、不创建运行
     目录，也不拥有实验或训练状态。
 关键输入与输出：
     导入时向 ``EVALUATOR_REGISTRY`` 写入固定内置类型；使用者从本模块获得 evaluator
-    类、报告类、受保护监视状态机、资源预算、联合 operator enclosure 和冻结分支库。
+    类、报告类、受保护监视状态机、资源预算、联合 operator enclosure、冻结分支库、
+    estimate 包络、有限 episode 校准和阈值分账对象。
 依赖与副作用：
     依赖核心注册表和各评估子模块。唯一副作用是幂等覆盖式注册内置 evaluator；不读取
     数据、网络或文件系统。
 重要约束：
     注册名称保持向后兼容；论文监视器不得把最终检测报警反馈到 anchor/mode 状态路径；
-    名义算子不能越权授权安全排除，认证算子必须共享一个联合不确定系数空间。
+    名义算子不能越权授权安全排除，认证算子必须共享一个联合不确定系数空间；P8 最终
+    detection quantile 不得进入生成自身 calibration scores 的冻结 score map。
 """
 
 from joff.core.registry import EVALUATOR_REGISTRY
 
 from .classification import ClassificationEvaluator, ClassificationReport
+from .dynamic_threshold import (
+    CalibrationStatus,
+    ContextAgeEnvelope,
+    DetectionScore,
+    DeterministicRadius,
+    DeterministicRadiusGenerator,
+    DynamicThresholdGenerator,
+    EnvelopeEvaluation,
+    EpisodeMaxCalibrator,
+    InputDependentEnvelope,
+    InputDescriptor,
+    ScoreCoordinate,
+    ThresholdResult,
+    ThresholdStatus,
+)
 from .fault_detection import FaultDetectionEvaluator, FaultDetectionReport, reconstruction_scores
 from .koopman import KoopmanContributionEvaluator, KoopmanContributionReport
 from .metrics import MetricReport, ReconstructionEvaluator, RegressionEvaluator
@@ -77,12 +94,22 @@ __all__ = [
     "BranchBank",
     "BranchKind",
     "BranchOperator",
+    "CalibrationStatus",
     "ClassificationEvaluator",
     "ClassificationReport",
     "CertifiedEnclosureProvider",
+    "ContextAgeEnvelope",
+    "DetectionScore",
+    "DeterministicRadius",
+    "DeterministicRadiusGenerator",
+    "DynamicThresholdGenerator",
+    "EnvelopeEvaluation",
+    "EpisodeMaxCalibrator",
     "FaultDetectionEvaluator",
     "FaultDetectionReport",
     "JacobianSemantics",
+    "InputDependentEnvelope",
+    "InputDescriptor",
     "KoopmanContributionEvaluator",
     "KoopmanContributionReport",
     "MetricReport",
@@ -108,6 +135,9 @@ __all__ = [
     "RegressionEvaluator",
     "StackedProtectedResidual",
     "SpectralMode",
+    "ScoreCoordinate",
+    "ThresholdResult",
+    "ThresholdStatus",
     "UncertifiedOperatorError",
     "WhiteningEstimate",
     "reconstruction_scores",
