@@ -2,8 +2,8 @@
 
 文件用途：
     汇总通用回归、分类、故障检测、Koopman 贡献评估器，以及论文 P5 受保护参考对象和
-    P6 联合认证堆叠算子、P7 white-space 后滤波和 P8 输入调度有限 episode 动态阈值，
-    为 ``joff.evaluation`` 提供稳定导入入口。
+    P6 联合认证堆叠算子、P7 white-space 后滤波、P8 输入调度有限 episode 动态阈值和
+    P9 集合值 explanation family，为 ``joff.evaluation`` 提供稳定导入入口。
 主要职责：
     注册内置 evaluator 并重导出公开配置、状态和报告；本文件不执行评估、不创建运行
     目录，也不拥有实验或训练状态。
@@ -39,8 +39,22 @@ from .dynamic_threshold import (
     ThresholdStatus,
 )
 from .fault_detection import FaultDetectionEvaluator, FaultDetectionReport, reconstruction_scores
+from .explanations import (
+    DeployedBranchEvidence,
+    DeployedObservation,
+    DynamicsSide,
+    ExplanationFamily,
+    MaskRecomputation,
+)
 from .koopman import KoopmanContributionEvaluator, KoopmanContributionReport
 from .metrics import MetricReport, ReconstructionEvaluator, RegressionEvaluator
+from .oracle import (
+    LinearExplanationCell,
+    MonotoneRefinementCache,
+    OracleCellRefinement,
+    OracleEvaluation,
+    OuterExplanationOracle,
+)
 from .postfilter import (
     BranchBank,
     BranchKind,
@@ -76,6 +90,13 @@ from .protected_reference import (
     ProtectedMonitor,
 )
 from .residuals import StackedProtectedResidual
+from .structured_isolation import (
+    AttributionCalibrationStatus,
+    FullNormalCalibrator,
+    IsolationCandidateSet,
+    IsolationOutcome,
+    IsolationReport,
+)
 
 EVALUATOR_REGISTRY.register("regression", RegressionEvaluator, replace=True)
 EVALUATOR_REGISTRY.register("reconstruction", ReconstructionEvaluator, replace=True)
@@ -91,6 +112,7 @@ EVALUATOR_REGISTRY.register(
 __all__ = [
     "AnchorCoverageStatus",
     "AnchorGateConfig",
+    "AttributionCalibrationStatus",
     "BranchBank",
     "BranchKind",
     "BranchOperator",
@@ -100,19 +122,30 @@ __all__ = [
     "CertifiedEnclosureProvider",
     "ContextAgeEnvelope",
     "DetectionScore",
+    "DeployedBranchEvidence",
+    "DeployedObservation",
     "DeterministicRadius",
     "DeterministicRadiusGenerator",
     "DynamicThresholdGenerator",
+    "DynamicsSide",
     "EnvelopeEvaluation",
     "EpisodeMaxCalibrator",
+    "ExplanationFamily",
     "FaultDetectionEvaluator",
     "FaultDetectionReport",
+    "FullNormalCalibrator",
     "JacobianSemantics",
     "InputDependentEnvelope",
     "InputDescriptor",
+    "IsolationCandidateSet",
+    "IsolationOutcome",
+    "IsolationReport",
     "KoopmanContributionEvaluator",
     "KoopmanContributionReport",
+    "LinearExplanationCell",
     "MetricReport",
+    "MaskRecomputation",
+    "MonotoneRefinementCache",
     "MonitorMode",
     "MonitorRecord",
     "MonitorStage",
@@ -128,6 +161,9 @@ __all__ = [
     "OperatorNorm",
     "OperatorPath",
     "OperatorStatus",
+    "OracleCellRefinement",
+    "OracleEvaluation",
+    "OuterExplanationOracle",
     "PostFilterCandidate",
     "ProtectedRollout",
     "ProtectedMonitor",
