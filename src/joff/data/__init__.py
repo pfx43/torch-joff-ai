@@ -29,6 +29,7 @@ from .adapters import (
     register_dataset_adapter,
 )
 from .datamodule import DataModule
+from .in_memory import InMemoryDataModule
 from .paper_protocol import (
     FaultLicenseStatus,
     FitAccessLedger,
@@ -94,6 +95,7 @@ __all__ = [
     "ImputationMaskConfig",
     "ImputationMaskResult",
     "ImputationMasker",
+    "InMemoryDataModule",
     "MPCWindowDataset",
     "MPCWindowSample",
     "MissingValueProcessor",
