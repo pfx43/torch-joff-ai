@@ -2,13 +2,14 @@
 
 文件用途：
     汇总通用回归、分类、故障检测、Koopman 贡献评估器，以及论文 P5 受保护参考对象和
-    P6 联合认证堆叠算子，为 ``joff.evaluation`` 提供稳定导入入口。
+    P6 联合认证堆叠算子和 P7 white-space 后滤波，为 ``joff.evaluation`` 提供稳定导入
+    入口。
 主要职责：
     注册内置 evaluator 并重导出公开配置、状态和报告；本文件不执行评估、不创建运行
     目录，也不拥有实验或训练状态。
 关键输入与输出：
     导入时向 ``EVALUATOR_REGISTRY`` 写入固定内置类型；使用者从本模块获得 evaluator
-    类、报告类、受保护监视状态机、资源预算和联合 operator enclosure。
+    类、报告类、受保护监视状态机、资源预算、联合 operator enclosure 和冻结分支库。
 依赖与副作用：
     依赖核心注册表和各评估子模块。唯一副作用是幂等覆盖式注册内置 evaluator；不读取
     数据、网络或文件系统。
@@ -23,6 +24,14 @@ from .classification import ClassificationEvaluator, ClassificationReport
 from .fault_detection import FaultDetectionEvaluator, FaultDetectionReport, reconstruction_scores
 from .koopman import KoopmanContributionEvaluator, KoopmanContributionReport
 from .metrics import MetricReport, ReconstructionEvaluator, RegressionEvaluator
+from .postfilter import (
+    BranchBank,
+    BranchKind,
+    BranchOperator,
+    PostFilterCandidate,
+    SpectralMode,
+    WhiteningEstimate,
+)
 from .protected_operators import (
     CertifiedEnclosureProvider,
     JacobianSemantics,
@@ -65,6 +74,9 @@ EVALUATOR_REGISTRY.register(
 __all__ = [
     "AnchorCoverageStatus",
     "AnchorGateConfig",
+    "BranchBank",
+    "BranchKind",
+    "BranchOperator",
     "ClassificationEvaluator",
     "ClassificationReport",
     "CertifiedEnclosureProvider",
@@ -89,11 +101,14 @@ __all__ = [
     "OperatorNorm",
     "OperatorPath",
     "OperatorStatus",
+    "PostFilterCandidate",
     "ProtectedRollout",
     "ProtectedMonitor",
     "ReconstructionEvaluator",
     "RegressionEvaluator",
     "StackedProtectedResidual",
+    "SpectralMode",
     "UncertifiedOperatorError",
+    "WhiteningEstimate",
     "reconstruction_scores",
 ]
