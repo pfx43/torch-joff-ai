@@ -12,7 +12,7 @@
 
 3. 三类故障结构化隔离：在完整有限监视器前态与 raw window 上建立 actuator/sensor/process/mixed/Normal 联合 explanation graph；mask 是反事实重算而非新物理观测；候选集保留所有可行解释，只有非正常 singleton 才给标签，真值与覆盖事件均提升为支持轨迹。
 
-详细技术路线与诊断依据见 `docs/论文核心重构与写作计划.md`；被取代的旧方案归档在 `docs/旧文档/论文方法完整设计.tex`（其第 10、14 节由新方案取代，其余大部分保留为素材：状态机、精确传播定理、完整模糊 Jacobian、有限时间界、掩码机制、命题 1/4 等）。
+详细技术路线与诊断依据归档在 `docs/旧文档/论文核心重构与写作计划.md`；更早的旧方案归档在 `docs/旧文档/论文方法完整设计.tex`（其第 10、14 节由新方案取代，其余大部分保留为素材：状态机、精确传播定理、完整模糊 Jacobian、有限时间界、掩码机制、命题 1/4 等）。
 
 ## 2. 建模与数据边界
 
@@ -29,7 +29,7 @@
 
 ## 4. 章节大纲（P0 版）
 
-I Introduction（无编号公式；4 条贡献）· II Preliminaries and Problem Formulation（受控 Koopman 算子 + 独立有限维受控预测器、T–S 隶属度条件、三类故障；末尾 Problem Formulation 小节 2 个中心目标：带逐点 FAR 的检测、带裕度与拒识的结构化隔离）· III Proposed Method（A 受保护残差生成；B 签名/扰动分解与后滤波器；C 动态阈值发生器；D 结构化隔离；E 学习与损失；F 端到端算法与复杂度）· IV Experiments（协议 + 占位）· V Conclusion · Appendix（长证明）。
+I Introduction（无编号公式；4 条贡献）· II Preliminaries and Problem Formulation（受控 Koopman 算子 + 独立有限维受控预测器、T–S 隶属度条件、三类故障；末尾 Problem Formulation 小节 2 个中心目标：有限 episode 联合误报控制的检测、带认证边界和集合值拒识的结构化隔离）· III Proposed Method（A 受保护残差生成；B 签名/扰动分解与后滤波器；C 动态阈值发生器；D 结构化隔离；E 学习与损失；F 端到端算法与复杂度）· IV Experiments（协议 + 占位）· V Conclusion · Appendix（长证明）。
 
 ## 5. 符号账本（种子，P3 定稿）
 
