@@ -1,10 +1,28 @@
-"""Minimal PyTorch trainer for smoke experiments."""
+"""Joff 的轻量 PyTorch 训练、评估与 checkpoint 协调器。
+
+文件用途：
+    为通用模型和论文模型执行统一的 epoch/batch 训练与评估循环，把模型计算、数据加载、
+    优化器和 checkpoint 职责组合起来。
+主要职责：
+    递归搬运具名 batch 到设备；调用 ``forward`` 与 ``compute_loss``；聚合总损失和命名
+    分量；选择回归/重构评估器；协调 callback 与 ``CheckpointManager``。
+关键输入与输出：
+    输入是实现 ``train_dataloader``/可选 ``test_dataloader`` 的数据对象、PyTorch 模型及
+    训练配置；输出 ``TrainingResult``、逐 epoch 指标和可选 checkpoint 路径。
+依赖与副作用：
+    依赖 PyTorch、Joff 设备/随机种子、优化器、评估器和 checkpoint 模块。训练会更新
+    模型/优化器状态并可写 checkpoint；评估不反向传播。
+重要约束：
+    Trainer 不读取原始文件、不推断列语义；具名监督目标必须先于通用输入 fallback 解析，
+    以支持 ``target_future`` 等论文批协议；模型专属损失由模型拥有。
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import torch
 from torch import nn
@@ -20,14 +38,41 @@ from joff.training.optim import build_optimizer
 
 @dataclass(frozen=True)
 class TrainingResult:
-    """History returned by :meth:`Trainer.fit`."""
+    """训练循环的不可变返回对象。
+
+    参数：
+        history: 每个 epoch 的扁平浮点指标。
+        checkpoint_paths: 实际写出的 ``last``/``best`` 路径。
+    副作用：
+        无。
+    """
 
     history: list[dict[str, float]]
     checkpoint_paths: dict[str, Path]
 
 
+class _LossInfo(TypedDict):
+    """Trainer 内部已规范化的总损失与命名分量。"""
+
+    loss: torch.Tensor
+    losses: dict[str, torch.Tensor]
+
+
 class Trainer:
-    """Small training loop that keeps model logic separate from data and artifacts."""
+    """保持模型、数据和产物职责分离的轻量训练器。
+
+    参数：
+        max_epochs/device/optimizer/seed: 训练轮数、目标设备、优化器配置和可选随机种子。
+        monitor/mode: best checkpoint 的监控指标与优化方向。
+        checkpoint_dir/save_last/save_best: checkpoint 目录与保存策略。
+        callbacks: 生命周期回调。
+        checkpoint_config/resolved_config/checkpoint_extra_state: 写入 checkpoint 的可追溯配置
+            与扩展状态。
+    异常：
+        设备、优化器、监控方向或模型损失非法时由相应组件抛出异常。
+    副作用：
+        ``fit`` 更新模型参数、优化器、callback 和可选 checkpoint 文件。
+    """
 
     def __init__(
         self,
@@ -46,6 +91,8 @@ class Trainer:
         resolved_config: dict[str, Any] | None = None,
         checkpoint_extra_state: dict[str, Any] | None = None,
     ) -> None:
+        """冻结一次 Trainer 运行所需的协调配置，不立即访问数据或模型。"""
+
         self.max_epochs = max_epochs
         self.device = resolve_device(device)
         self.optimizer_config = optimizer or {"type": "adam", "lr": 1e-3, "weight_decay": 0.0}
@@ -61,7 +108,18 @@ class Trainer:
         self.checkpoint_extra_state = checkpoint_extra_state
 
     def fit(self, model: nn.Module, data: Any) -> TrainingResult:
-        """Train ``model`` on ``data`` and return epoch history."""
+        """训练模型并返回历史与 checkpoint 路径。
+
+        参数：
+            model: 实现 ``forward``，并通常实现 ``compute_loss`` 的 PyTorch 模型。
+            data: 提供训练 DataLoader 和可选测试 DataLoader 的数据层对象。
+        返回：
+            每轮聚合指标与实际 checkpoint 路径。
+        异常：
+            空/非法 batch、非标量损失、反向传播、评估或 checkpoint 错误原样传播。
+        副作用：
+            可固定随机种子、更新参数/优化器/callback，并写 checkpoint。
+        """
 
         if self.seed is not None:
             seed_everything(self.seed)
@@ -83,7 +141,11 @@ class Trainer:
                 batch = _move_to_device(batch, self.device)
                 optimizer.zero_grad(set_to_none=True)
                 if hasattr(model, "training_step"):
-                    step = model.training_step(batch, batch_idx)
+                    training_step = cast(
+                        Callable[[Any, int], Any],
+                        getattr(model, "training_step"),
+                    )
+                    step = training_step(batch, batch_idx)
                     loss_info = _normalize_loss_output(step)
                 else:
                     output = model(batch)
@@ -132,7 +194,17 @@ class Trainer:
 
     @torch.no_grad()
     def evaluate(self, model: nn.Module, data: Any) -> dict[str, float]:
-        """Evaluate ``model`` on test data if present, otherwise train data."""
+        """在测试集（若有）或训练集上无梯度评估模型。
+
+        参数：
+            model/data: 与 ``fit`` 相同；优先使用非空测试 DataLoader。
+        返回：
+            聚合损失、命名分量和回归/重构指标。
+        异常：
+            batch 或模型输出不满足通用评估契约时抛出 ``TypeError``/``ValueError``。
+        副作用：
+            把模型移至目标设备并切换为 eval 模式；不更新参数。
+        """
 
         model.to(self.device)
         model.eval()
@@ -153,6 +225,18 @@ class Trainer:
 
 @torch.no_grad()
 def _evaluate_loader(model: nn.Module, loader: Any, device: torch.device) -> dict[str, float]:
+    """遍历一个 DataLoader，聚合损失并按输出语义选择评估器。
+
+    参数：
+        model/loader/device: 已构造模型、可迭代批次和目标设备。
+    返回：
+        全样本加权的损失分量与回归/重构指标。
+    异常：
+        预测和目标无法提取或拼接时抛出异常。
+    副作用：
+        将模型设为 eval；由 ``torch.no_grad`` 禁止梯度记录。
+    """
+
     model.eval()
     total_loss = 0.0
     count = 0
@@ -188,9 +272,25 @@ def _evaluate_loader(model: nn.Module, loader: Any, device: torch.device) -> dic
     return metrics
 
 
-def _compute_loss(model: nn.Module, batch: Any, output: Any) -> torch.Tensor:
+def _compute_loss(model: nn.Module, batch: Any, output: Any) -> Any:
+    """计算一个 batch 的训练损失。
+
+    参数：
+        model/batch/output: 当前模型、设备上的 batch 和对应前向输出。
+    返回：
+        模型专属损失对象；无 ``compute_loss`` 时返回均方误差标量。
+    异常：
+        动态损失接口不可调用、通用输出/目标不是 tensor 或 shape 不匹配时抛出异常。
+    副作用：
+        无；返回值保留 autograd 图。
+    """
+
     if hasattr(model, "compute_loss"):
-        return model.compute_loss(batch, output)
+        compute_loss = cast(
+            Callable[[Any, Any], Any],
+            getattr(model, "compute_loss"),
+        )
+        return compute_loss(batch, output)
     target = batch[1] if isinstance(batch, (tuple, list)) and len(batch) > 1 else batch[0]
     if isinstance(output, dict) and "reconstruction" in output:
         output = output["reconstruction"]
@@ -198,21 +298,41 @@ def _compute_loss(model: nn.Module, batch: Any, output: Any) -> torch.Tensor:
 
 
 def _prediction_and_target(batch: Any, output: Any) -> tuple[torch.Tensor, torch.Tensor, bool]:
+    """从模型输出与 batch 提取可评估预测、目标和重构标志。
+
+    具名目标先独立解析；只有目标不存在时才解析通用输入。这一顺序避免论文 batch 已含
+    ``target_future`` 却因没有 ``x``/``history`` 别名而提前失败。
+    """
+
     if isinstance(output, dict):
         if "prediction" in output:
             prediction = output["prediction"]
-            target = _target_from_batch(batch, fallback=_input_from_batch(batch))
+            target = _target_from_batch(batch)
+            if target is None:
+                target = _input_from_batch(batch)
             return prediction, _align_target(target, prediction), False
         if "reconstruction" in output:
             prediction = output["reconstruction"]
             target = _input_from_batch(batch)
             return prediction, _align_target(target, prediction), True
     prediction = output
-    target = _target_from_batch(batch, fallback=_input_from_batch(batch))
+    target = _target_from_batch(batch)
+    if target is None:
+        target = _input_from_batch(batch)
     return prediction, _align_target(target, prediction), False
 
 
 def _input_from_batch(batch: Any) -> torch.Tensor:
+    """从通用 batch 中提取模型输入 fallback。
+
+    返回：
+        Tensor 本身、序列首项或 mapping 的标准输入字段。
+    异常：
+        没有任何合法输入字段时抛出 ``TypeError``。
+    副作用：
+        无。
+    """
+
     if isinstance(batch, torch.Tensor):
         return batch
     if isinstance(batch, dict):
@@ -224,17 +344,31 @@ def _input_from_batch(batch: Any) -> torch.Tensor:
     raise TypeError("Cannot extract input tensor from batch.")
 
 
-def _target_from_batch(batch: Any, *, fallback: torch.Tensor) -> torch.Tensor:
+def _target_from_batch(batch: Any) -> torch.Tensor | None:
+    """提取显式监督目标。
+
+    返回：
+        mapping 的标准目标字段、序列第二项，或在不存在时返回 ``None``。
+    重要约束：
+        不在本函数解析输入 fallback，避免 eager fallback 遮蔽已有 ``target_future``。
+    """
+
     if isinstance(batch, dict):
         for key in ("y", "target", "targets", "target_future", "future", "label", "labels"):
             if key in batch:
                 return batch[key]
     if isinstance(batch, (tuple, list)) and len(batch) > 1:
         return batch[1]
-    return fallback
+    return None
 
 
 def _align_target(target: torch.Tensor, prediction: torch.Tensor) -> torch.Tensor:
+    """对齐评估目标与预测 shape。
+
+    仅支持 shape 已相同，或把 ``[B,D]`` 目标显式扩展为 ``[B,N,D]``；其他情况原样返回，
+    由后续评估器报告真实 shape 错误，不做可能掩盖语义的 reshape。
+    """
+
     if target.shape == prediction.shape:
         return target
     if prediction.ndim == 3 and target.ndim == 2 and target.shape[0] == prediction.shape[0]:
@@ -242,7 +376,19 @@ def _align_target(target: torch.Tensor, prediction: torch.Tensor) -> torch.Tenso
     return target
 
 
-def _normalize_loss_output(value: Any) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
+def _normalize_loss_output(value: Any) -> _LossInfo:
+    """把多种模型损失返回形式规范化为 Trainer 契约。
+
+    参数：
+        value: Tensor、含 ``loss``/可选 ``losses`` 的字典，或同名属性对象。
+    返回：
+        ``_LossInfo``，其中总损失为 Tensor、命名分量只保留 Tensor。
+    异常：
+        缺总损失、总损失非 Tensor 或分量容器非字典时抛出 ``ValueError``/``TypeError``。
+    副作用：
+        无。
+    """
+
     if isinstance(value, torch.Tensor):
         return {"loss": value, "losses": {}}
     if isinstance(value, dict):
@@ -272,6 +418,16 @@ def _normalize_loss_output(value: Any) -> dict[str, torch.Tensor | dict[str, tor
 
 
 def _move_to_device(value: Any, device: torch.device) -> Any:
+    """递归搬运嵌套 tensor。
+
+    参数：
+        value/device: 任意嵌套 batch 和目标设备。
+    返回：
+        保持 tuple/list/dict 形态的同构对象；非 tensor 元数据原样返回。
+    副作用：
+        Tensor ``to`` 可能分配设备内存；不修改原容器。
+    """
+
     if isinstance(value, torch.Tensor):
         return value.to(device)
     if isinstance(value, tuple):
@@ -284,6 +440,16 @@ def _move_to_device(value: Any, device: torch.device) -> Any:
 
 
 def _batch_size(batch: Any) -> int:
+    """从嵌套 batch 推断样本数。
+
+    返回：
+        Tensor 首维；序列/字典递归使用第一项；未知标量对象保守返回 1。
+    异常：
+        空字典会由 ``next`` 抛出 ``StopIteration``，提示 batch 契约非法。
+    副作用：
+        无。
+    """
+
     if isinstance(batch, torch.Tensor):
         return int(batch.shape[0])
     if isinstance(batch, (tuple, list)) and batch:
