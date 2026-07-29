@@ -1,12 +1,12 @@
-"""P10 CSTR 正常-only 开发产物生成入口。
+"""P10/P11 CSTR 与 TTS 正常-only 开发产物生成入口。
 
 文件用途：
-    消除 ``cstr_development.yaml`` 与正式冻结产物之间的手工拼装步骤；只使用已核验许可
-    的正常 MAT 数据，按 P2 五阶段边界训练 P4 模型并生成 P5--P9 正常证据。
+    消除 CSTR/TTS development YAML 与正常产物之间的手工拼装步骤；只使用已核验许可
+    的正常 MAT，按 P2 五阶段边界训练 P4 模型并生成 P5--P9 正常证据。
 主要职责：
     严格解析开发配置、验证正常文件身份、构造滑窗训练批、执行确定性 CPU 训练、拟合
     estimate-only 缩放/包络/协方差、两次独立校准、checkpoint evaluator envelope 和
-    frozen-normal 重放，并冻结 fit access ledger。
+    frozen-normal 重放，并冻结 fit access ledger；TTS 运行开始前还要复验 CSTR 主配置锁。
 关键输入与输出：
     输入是 ``ResolvedFrozenEvaluationConfig`` 的 development 模式和单个正常 MAT；
     输出是 ``PaperNormalArtifactsConfig`` 指定的 20 个文件，以及同目录 P2 bundle 摘要。
@@ -16,9 +16,10 @@
     frozen manifest/claim，也不访问网络。
 重要约束：
     数据许可和正常源 hash 必须先核实；所有拟合访问都通过 ``PaperDataBundle.data_for_fit``
-    登记。当前没有认证 provider，因此 operator/signature/nuisance 明确写为不可用，
-    checkpoint evaluator 标为 development-only，正式 CLI 会在 claim 前拒绝它。该运行
-    不能作为论文故障性能结果。
+    登记。TTS 必须先由真实 P10 formal manifest 证明 CSTR 正式冻结评价已完成，否则在
+    数据/输出 I/O 前关闭。TTS/TE 结果不得回写 CSTR 选择。当前没有认证 provider，因此
+    operator/signature/nuisance 明确写为不可用，checkpoint evaluator 标为
+    development-only；该运行不能作为论文故障性能结果。
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ import argparse
 import hashlib
 import json
 import math
+import subprocess
 
 import numpy as np
 import torch
@@ -41,7 +43,12 @@ from joff.core.factory import build_evaluator, build_model
 from joff.data import FaultLicenseStatus, FitPurpose, PaperDataBundle, StageName
 from joff.data.sources.readers import read_mat_arrays
 
-from .frozen_evaluation import FrozenProtocolIntegrityError, FrozenRiskCalibration
+from .frozen_evaluation import (
+    FrozenProtocolIntegrityError,
+    FrozenProtocolManifest,
+    FrozenRiskCalibration,
+    verify_frozen_evaluation_artifacts,
+)
 from .paper_entrypoints import (
     PaperDevelopmentConfig,
     ResolvedFrozenEvaluationConfig,
@@ -75,12 +82,12 @@ class PaperDevelopmentResult:
     artifact_paths: Mapping[str, Path]
 
 
-def run_cstr_normal_development(
+def run_paper_normal_development(
     resolved: ResolvedFrozenEvaluationConfig,
     *,
     repo_root: str | Path,
 ) -> PaperDevelopmentResult:
-    """执行一次全新、正常-only 的 CSTR 开发运行。
+    """执行一次全新、正常-only 的 CSTR 或 TTS 开发运行。
 
     参数：
         resolved: development 模式严格配置。
@@ -92,7 +99,8 @@ def run_cstr_normal_development(
         ``FrozenProtocolIntegrityError``、``FileExistsError`` 或底层 I/O 异常。
     副作用：
         读取一个正常 MAT；在受限运行目录中独占写产物并执行 CPU 训练。不读取 fault
-        文件、不创建 manifest/claim。
+        文件、不创建 manifest/claim。TTS 路径先复验 CSTR frozen 配置、Git 提交和真实
+        formal manifest；阻塞态不会读取 TTS 数据或创建输出。
     """
 
     config = resolved.config
@@ -102,12 +110,13 @@ def run_cstr_normal_development(
     artifacts = config.normal_artifacts
     if development is None or artifacts is None:
         raise ValueError("Development parameters and normal_artifacts are required.")
+    root = Path(repo_root).expanduser().resolve()
+    _validate_primary_protocol_lock(resolved, root=root)
     if config.dataset.license_status != "verified":
         raise FrozenProtocolIntegrityError(
-            "Normal CSTR development requires dataset license_status='verified'."
+            "Normal paper development requires dataset license_status='verified'."
         )
 
-    root = Path(repo_root).expanduser().resolve()
     run_dir = _resolve(root, config.artifact_root) / config.run_name
     artifact_paths = {
         name: _resolve(root, path)
@@ -140,6 +149,16 @@ def run_cstr_normal_development(
         expected_features=config.dataset.feature_count,
         expected_hash=config.dataset.normal_source_hash,
     )
+    development_identity = {
+        "dataset_name": config.dataset.name,
+        "entry_config_hash": resolved.config_hash,
+        "primary_protocol_lock": (
+            None
+            if config.primary_protocol_lock is None
+            else config.primary_protocol_lock.model_dump(mode="json")
+        ),
+        "fault_data_accessed": False,
+    }
 
     bundle = PaperDataBundle(
         values,
@@ -194,8 +213,8 @@ def run_cstr_normal_development(
         {
             "schema_version": 1,
             "status": "development_only",
+            **development_identity,
             "epochs": history,
-            "fault_data_accessed": False,
         },
     )
     training_checkpoint = artifact_paths["training_checkpoint"]
@@ -207,6 +226,7 @@ def run_cstr_normal_development(
                 "model_state_dict": model.state_dict(),
                 "extra_state": {
                     "stage": "normal_train_only",
+                    "development_identity": development_identity,
                     "fault_data_accessed": False,
                 },
             },
@@ -224,6 +244,7 @@ def run_cstr_normal_development(
             "schema_version": 1,
             "candidate_id": "configured-protected-koopman-ts",
             "selection_source": "normal_train_only",
+            **development_identity,
             "model_config": development.method.model.model_dump(mode="json"),
         },
     )
@@ -422,6 +443,7 @@ def run_cstr_normal_development(
                         "type": "protected_koopman_ts_frozen",
                         "state": evaluator_state,
                     },
+                    "development_identity": development_identity,
                     "formal_pipeline_complete": False,
                     "fault_data_accessed": False,
                 },
@@ -458,11 +480,11 @@ def run_cstr_normal_development(
         artifact_paths["checkpoint_replay"],
         {
             "status": "passed",
+            **development_identity,
             "checkpoint_hashes": {"protected_koopman_ts": checkpoint_hash},
             "output_hashes": {"frozen_normal": sha256_file(replay_output)},
             "model_reloaded_from_checkpoint": True,
             "comparison": "exact",
-            "fault_data_accessed": False,
         },
     )
 
@@ -490,6 +512,297 @@ def run_cstr_normal_development(
         checkpoint_hash=checkpoint_hash,
         artifact_paths=artifact_paths,
     )
+
+
+def run_cstr_normal_development(
+    resolved: ResolvedFrozenEvaluationConfig,
+    *,
+    repo_root: str | Path,
+) -> PaperDevelopmentResult:
+    """兼容 P10 调用名，并委托给数据集无关的正常开发入口。
+
+    参数：
+        resolved/repo_root: 与 ``run_paper_normal_development`` 相同。
+    返回：
+        通用入口生成的 ``PaperDevelopmentResult``。
+    异常：
+        原样传播通用入口的配置、完整性、训练和文件异常。
+    副作用：
+        与通用入口相同；不会额外读写任何文件。保留该名称只为已有 P10 脚本兼容。
+    """
+
+    return run_paper_normal_development(resolved, repo_root=repo_root)
+
+
+def _validate_primary_protocol_lock(
+    resolved: ResolvedFrozenEvaluationConfig,
+    *,
+    root: Path,
+) -> None:
+    """在次级数据集读数前复验 CSTR 配置、提交及正式 manifest 身份。
+
+    参数：
+        resolved: 已通过模式校验的 development 配置。
+        root: 规范化仓库根。
+    返回：
+        无；CSTR 主开发，或 TTS 完成态全部证据完全匹配时静默返回。
+    异常：
+        TTS 缺锁、锁路径逃出仓库、文件/提交/manifest 缺失，或任一 SHA-256、协议、
+        评价、正常产物 bundle 或 completion receipt/完整输出身份不一致时抛出
+        ``FrozenProtocolIntegrityError`` 或 ``FrozenEvaluationArtifactError``。
+    副作用：
+        只读 CSTR YAML、Git object 数据库和完成态 manifest 引用的冻结产物；不读取任何
+        TTS normal/fault MAT，不修改主配置、claim 或次级运行目录。
+    """
+
+    config = resolved.config
+    if config.dataset.name != "tts_fault_diagnosis":
+        return
+    lock = config.primary_protocol_lock
+    if lock is None:
+        # Pydantic 模式校验应更早拒绝；此防御分支避免绕过严格解析的内部调用失守。
+        raise FrozenProtocolIntegrityError(
+            "TTS development requires a primary CSTR protocol lock."
+        )
+    frozen_config = _resolve(root, lock.frozen_config)
+    try:
+        frozen_config.relative_to(root)
+    except ValueError as exc:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR frozen config must remain inside the repository root."
+        ) from exc
+    if not frozen_config.is_file():
+        raise FrozenProtocolIntegrityError(
+            f"TTS primary CSTR frozen config is missing: {frozen_config}"
+        )
+    try:
+        frozen_bytes = frozen_config.read_bytes()
+    except OSError as exc:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR frozen config cannot be read."
+        ) from exc
+    if hashlib.sha256(frozen_bytes).hexdigest() != lock.frozen_config_sha256:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR frozen config SHA-256 differs from the declared lock."
+        )
+    try:
+        frozen_value = yaml.safe_load(frozen_bytes.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError) as exc:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR frozen config cannot be parsed after hash verification."
+        ) from exc
+    if not isinstance(frozen_value, Mapping):
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR frozen config must contain a top-level mapping."
+        )
+    dataset_value = frozen_value.get("dataset")
+    if (
+        frozen_value.get("protocol_version") != lock.protocol_version
+        or not isinstance(dataset_value, Mapping)
+        or dataset_value.get("name") != lock.dataset_name
+    ):
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR frozen config identity differs from the declared lock."
+        )
+    _validate_primary_implementation_commit(
+        root=root,
+        implementation_commit=lock.implementation_commit,
+        protected_frozen_config=frozen_config,
+        protected_frozen_config_sha256=lock.frozen_config_sha256,
+    )
+    if lock.selection_status != "formal_cstr_frozen_evaluation_completed":
+        raise FrozenProtocolIntegrityError(
+            "P11 TTS development is stage-gated because the formal CSTR frozen evaluation "
+            "has not completed."
+        )
+
+    # Pydantic 已保证完成态五项均非空；这里保留显式检查，避免内部构造或未来 schema
+    # 迁移绕过文件 I/O 前的 fail-closed 边界。
+    if (
+        lock.evaluation_id is None
+        or lock.manifest_path is None
+        or lock.manifest_sha256 is None
+        or lock.manifest_hash is None
+        or lock.normal_artifact_bundle_hash is None
+        or lock.receipt_path is None
+        or lock.receipt_sha256 is None
+    ):
+        raise FrozenProtocolIntegrityError(
+            "Completed TTS primary protocol lock lacks formal manifest/receipt evidence."
+        )
+    manifest_path = _resolve(root, lock.manifest_path)
+    try:
+        manifest_path.relative_to(root)
+    except ValueError as exc:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR manifest must remain inside the repository root."
+        ) from exc
+    if not manifest_path.is_file():
+        raise FrozenProtocolIntegrityError(
+            f"TTS primary CSTR formal manifest is missing: {manifest_path}"
+        )
+    if sha256_file(manifest_path) != lock.manifest_sha256:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR formal manifest SHA-256 differs from the declared lock."
+        )
+    manifest = FrozenProtocolManifest.load(manifest_path)
+    normal_artifacts = manifest.normal_artifacts
+    resolved_dataset = manifest.resolved_config.get("dataset")
+    if (
+        manifest.protocol_version != lock.protocol_version
+        or manifest.evaluation_id != lock.evaluation_id
+        or manifest.git_commit != lock.implementation_commit
+        or manifest.manifest_hash != lock.manifest_hash
+        or not isinstance(resolved_dataset, Mapping)
+        or resolved_dataset.get("name") != lock.dataset_name
+    ):
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR formal manifest identity differs from the declared lock."
+        )
+    if (
+        normal_artifacts is None
+        or normal_artifacts.bundle_hash != lock.normal_artifact_bundle_hash
+    ):
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR normal artifact bundle differs from the declared lock."
+        )
+    checkpoint_name = normal_artifacts.runtime_evaluator["checkpoint_name"]
+    required_artifacts = {
+        "training_checkpoint",
+        "structure_selection",
+        f"checkpoint_files.{checkpoint_name}",
+    }
+    if not required_artifacts.issubset(normal_artifacts.artifact_paths):
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR formal manifest does not bind training, structure and "
+            "runtime checkpoint artifacts."
+        )
+    receipt_path = _resolve(root, lock.receipt_path)
+    try:
+        receipt_path.relative_to(root)
+    except ValueError as exc:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR evaluation receipt must remain inside the repository root."
+        ) from exc
+    if not receipt_path.is_file():
+        raise FrozenProtocolIntegrityError(
+            f"TTS primary CSTR evaluation receipt is missing: {receipt_path}"
+        )
+    if sha256_file(receipt_path) != lock.receipt_sha256:
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR evaluation receipt SHA-256 differs from the declared lock."
+        )
+    verified_evaluation = verify_frozen_evaluation_artifacts(
+        manifest_path=manifest_path,
+        receipt_path=receipt_path,
+    )
+    if (
+        verified_evaluation.evaluation_id != lock.evaluation_id
+        or verified_evaluation.manifest_hash != lock.manifest_hash
+        or verified_evaluation.receipt_path.resolve() != receipt_path
+    ):
+        raise FrozenProtocolIntegrityError(
+            "TTS primary CSTR completed evaluation identity differs from the declared lock."
+        )
+
+
+def _validate_primary_implementation_commit(
+    *,
+    root: Path,
+    implementation_commit: str,
+    protected_frozen_config: Path,
+    protected_frozen_config_sha256: str,
+) -> None:
+    """确认主协议提交及其受保护 frozen 配置是真实、可达且内容一致。
+
+    参数：
+        root: 已规范化的仓库根。
+        implementation_commit: P10 锁声明的完整 40 位提交。
+        protected_frozen_config/protected_frozen_config_sha256: 当前已核验的主 YAML 路径和
+            工作树文件 hash；提交中的同一路径必须产生完全相同的 blob。
+    返回：
+        无；对象存在、类型为 commit、为当前 HEAD 祖先，且配置 blob 相同时静默返回。
+    异常：
+        Git 不可执行、命令超时、对象缺失/类型错误、提交不在当前历史，或受保护配置
+        不是该提交中的同一内容时抛出 ``FrozenProtocolIntegrityError``。
+    副作用：
+        只读 ``.git`` 对象和引用；不修改索引、工作树或分支。
+    """
+
+    commands = (
+        (
+            "resolve",
+            [
+                "git",
+                "-C",
+                str(root),
+                "cat-file",
+                "-e",
+                f"{implementation_commit}^{{commit}}",
+            ],
+        ),
+        (
+            "ancestry",
+            [
+                "git",
+                "-C",
+                str(root),
+                "merge-base",
+                "--is-ancestor",
+                implementation_commit,
+                "HEAD",
+            ],
+        ),
+    )
+    for check_name, command in commands:
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise FrozenProtocolIntegrityError(
+                "Primary implementation commit cannot be verified by Git."
+            ) from exc
+        if completed.returncode != 0:
+            raise FrozenProtocolIntegrityError(
+                "Primary implementation commit failed Git "
+                f"{check_name} verification."
+            )
+    try:
+        protected_relative = protected_frozen_config.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise FrozenProtocolIntegrityError(
+            "Primary protected frozen config must remain inside the Git repository."
+        ) from exc
+    try:
+        committed_config = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "show",
+                f"{implementation_commit}:{protected_relative}",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise FrozenProtocolIntegrityError(
+            "Primary protected frozen config cannot be verified by Git."
+        ) from exc
+    if (
+        committed_config.returncode != 0
+        or hashlib.sha256(committed_config.stdout).hexdigest()
+        != protected_frozen_config_sha256
+    ):
+        raise FrozenProtocolIntegrityError(
+            "Primary protected frozen config differs from the declared Git commit."
+        )
 
 
 def _train_model(
@@ -745,29 +1058,29 @@ def _load_normal_matrix(
     expected_features: int,
     expected_hash: str | None,
 ) -> np.ndarray:
-    """只读并合并正常 MAT 的有限二维数组，核对声明 geometry/hash。"""
+    """只读并合并论文开发 normal MAT 的有限二维数组，核对声明 geometry/hash。"""
 
     if not path.is_file():
-        raise FileNotFoundError(f"Normal CSTR MAT is missing: {path}")
+        raise FileNotFoundError(f"Paper development normal MAT is missing: {path}")
     observed_hash = sha256_file(path)
     if expected_hash is None or observed_hash != expected_hash:
         raise FrozenProtocolIntegrityError(
-            "Normal CSTR MAT SHA-256 differs from the development config."
+            "Paper development normal MAT SHA-256 differs from the config."
         )
     arrays = read_mat_arrays(path)
     if not arrays:
-        raise ValueError("Normal CSTR MAT contains no numeric arrays.")
+        raise ValueError("Paper development normal MAT contains no numeric arrays.")
     values = np.concatenate(
         [np.asarray(array, dtype=float) for _, array in sorted(arrays.items())],
         axis=0,
     )
     if values.shape != (expected_rows, expected_features):
         raise ValueError(
-            "Normal CSTR matrix geometry differs from config: "
+            "Paper development normal matrix geometry differs from config: "
             f"observed={values.shape}, expected={(expected_rows, expected_features)}."
         )
     if not np.isfinite(values).all():
-        raise ValueError("Normal CSTR matrix must contain only finite values.")
+        raise ValueError("Paper development normal matrix must contain only finite values.")
     return values
 
 
@@ -820,6 +1133,10 @@ def _restore_development_evaluator(checkpoint_path: Path) -> Any:
     副作用：
         只读 checkpoint 并在 CPU 构造模型；不读取故障数据、不写产物。
     """
+
+    # 该 evaluator 属于 experiments 的正式运行时，不在通用 joff.evaluation 内。按需导入
+    # 保证直接调用 development API/CLI 时也完成显式注册，而不依赖其他测试先导入 frozen CLI。
+    from . import frozen_runtime as _frozen_runtime  # noqa: F401
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, Mapping):
@@ -974,7 +1291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         resolved = resolve_frozen_evaluation_config(args.config)
-        result = run_cstr_normal_development(
+        result = run_paper_normal_development(
             resolved,
             repo_root=args.repo_root,
         )
@@ -1013,4 +1330,5 @@ __all__ = [
     "PaperDevelopmentResult",
     "main",
     "run_cstr_normal_development",
+    "run_paper_normal_development",
 ]

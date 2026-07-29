@@ -44,8 +44,8 @@ _PRIVATE_ACCESS = {
 
 
 @dataclass(frozen=True)
-class CSTRFaultProtocol:
-    """描述一个 CSTR 故障数据变体中不会从数组数值猜测的物理协议。
+class FaultDatasetProtocol:
+    """描述一个过程故障数据变体中不会从数组数值猜测的物理协议。
 
     参数：
         feature_names: 原始矩阵各列按存储顺序对应的物理变量名。
@@ -53,6 +53,11 @@ class CSTRFaultProtocol:
         fault_onset: episode 内的故障开始采样索引；该值必须来自数据说明。
         fault_families: ``(fault_id, family)`` 对，用于场景元数据而非模型特征。
         description_file: 保存变量、onset 和来源说明的相对文件名。
+        stored_feature_indices: 从原始矩阵选择过程变量的零基列号；为空时要求原始矩阵
+            宽度与 ``feature_names`` 完全一致。该字段用于排除随数据一同保存、但属于
+            答案信息的故障输出通道，绝不能根据故障性能动态选择。
+        normal_stored_width/fault_stored_width: 可选的正常/故障原始矩阵精确列宽。发布版
+            同时携带答案列时，必须先按 normal/fault 身份核对完整宽度再做静态列选择。
     副作用：
         无。对象只保存已核验的静态协议，不能读取数据或自动推断列语义。
     """
@@ -62,25 +67,54 @@ class CSTRFaultProtocol:
     fault_onset: int
     fault_families: tuple[tuple[int, str], ...]
     description_file: str
+    stored_feature_indices: tuple[int, ...] | None = None
+    normal_stored_width: int | None = None
+    fault_stored_width: int | None = None
 
     def __post_init__(self) -> None:
         """在适配器读取任何数据前拒绝不完整或自相矛盾的协议。
 
         异常：
-            变量名与角色数量不等，或 ``fault_onset`` 为负数时抛出 ``ValueError``。
+            变量名与角色/存储列数量不等，存储列重复或为负数，声明宽度不能容纳选中列，
+            或 ``fault_onset`` 为负数时抛出 ``ValueError``。
         副作用：
             无。只检查冻结字段，不读取数据，也不修改对象。
         """
 
         if len(self.feature_names) != len(self.feature_roles):
             raise ValueError(
-                "CSTR protocol feature_names and feature_roles must have equal length. "
+                "Fault dataset protocol feature_names and feature_roles must have equal length. "
                 f"Current lengths: {len(self.feature_names)} and {len(self.feature_roles)}."
             )
         if self.fault_onset < 0:
             raise ValueError(
-                f"CSTR protocol fault_onset must be non-negative. Current input: {self.fault_onset}."
+                "Fault dataset protocol fault_onset must be non-negative. "
+                f"Current input: {self.fault_onset}."
             )
+        indices = self.stored_feature_indices
+        widths = (self.normal_stored_width, self.fault_stored_width)
+        if any(width is not None and width <= 0 for width in widths):
+            raise ValueError(
+                "Fault dataset protocol stored widths must be positive integers."
+            )
+        if indices is not None:
+            if len(indices) != len(self.feature_names):
+                raise ValueError(
+                    "Fault dataset protocol stored_feature_indices must match feature_names. "
+                    f"Current lengths: {len(indices)} and {len(self.feature_names)}."
+                )
+            if any(index < 0 for index in indices) or len(set(indices)) != len(indices):
+                raise ValueError(
+                    "Fault dataset protocol stored_feature_indices must be unique "
+                    "non-negative integers."
+                )
+            if any(
+                width is not None and indices and max(indices) >= width
+                for width in widths
+            ):
+                raise ValueError(
+                    "Fault dataset protocol stored width cannot contain all selected columns."
+                )
 
     def input_roles(self) -> tuple[str, ...]:
         """按首次出现顺序返回任务允许读取的物理输入角色。
@@ -95,6 +129,25 @@ class CSTRFaultProtocol:
         """
 
         return tuple(dict.fromkeys(self.feature_roles))
+
+    def role_indices(self, role: str) -> tuple[int, ...]:
+        """返回某一物理 schema 角色在发布过程变量中的固定列号。
+
+        参数：
+            role: 例如 ``control_input`` 或 ``measured_output`` 的 schema 角色名。
+        返回：
+            按原始发布列序排列的零基索引；协议不含该角色时返回空元组。
+        异常：
+            无；角色字符串只做相等比较，不触发数据或注册表访问。
+        副作用：
+            无。配置层可据此派生 feature layout，避免再次硬编码同一物理合同。
+        """
+
+        return tuple(
+            index
+            for index, declared_role in enumerate(self.feature_roles)
+            if declared_role == role
+        )
 
     def fault_family(self, fault_id: int) -> str:
         """把数据说明中的故障编号映射为结构化故障族。
@@ -116,9 +169,56 @@ class CSTRFaultProtocol:
         if fault_id not in families:
             legal = ", ".join(str(item) for item in sorted(families))
             raise ValueError(
-                f"Unknown CSTR protocol fault_id {fault_id}. Legal options are: 0, {legal}."
+                f"Unknown fault dataset protocol fault_id {fault_id}. "
+                f"Legal options are: 0, {legal}."
             )
         return families[fault_id]
+
+    def select_stored_features(
+        self,
+        values: np.ndarray,
+        *,
+        normal: bool,
+    ) -> np.ndarray:
+        """按静态发布协议选择可作为过程变量的存储列。
+
+        参数：
+            values: 已清理的二维原始数组。它可能额外包含故障输出等受保护答案通道。
+            normal: 当前 episode 是否来自正常发布文件；只用于选择协议声明的精确列宽，
+                不读取标签或数值表现。
+        返回：
+            只含 ``feature_names`` 对应列的新数组视图；列顺序严格等于协议声明顺序。
+        异常：
+            原始宽度不等于 normal/fault 发布协议、未声明选择时宽度不等于物理变量数，
+            或声明列号超出矩阵宽度时抛出 ``ValueError``，防止静默截断或把答案列送入
+            模型。
+        副作用：
+            无。不修改输入数组、不读取文件，也不根据数值内容推断列语义。
+        """
+
+        expected_width = (
+            self.normal_stored_width if normal else self.fault_stored_width
+        )
+        if expected_width is not None and values.shape[1] != expected_width:
+            split_name = "normal" if normal else "fault"
+            raise ValueError(
+                f"Fault dataset {split_name} raw width differs from the published protocol. "
+                f"Current columns={values.shape[1]}, declared={expected_width}."
+            )
+        indices = self.stored_feature_indices
+        if indices is None:
+            if values.shape[1] != len(self.feature_names):
+                raise ValueError(
+                    "Fault dataset raw width differs from the declared physical variables. "
+                    f"Current columns={values.shape[1]}, declared={len(self.feature_names)}."
+                )
+            return values
+        if indices and max(indices) >= values.shape[1]:
+            raise ValueError(
+                "Fault dataset stored feature index lies outside the raw matrix width. "
+                f"Maximum index={max(indices)}, columns={values.shape[1]}."
+            )
+        return values[:, indices]
 
     def summary(self) -> dict[str, Any]:
         """生成可直接写入来源 manifest 的静态协议摘要。
@@ -135,16 +235,28 @@ class CSTRFaultProtocol:
         variables: dict[str, list[str]] = {}
         for name, role in zip(self.feature_names, self.feature_roles, strict=True):
             variables.setdefault(role, []).append(name)
-        return {
+        summary = {
             "variables": variables,
             "fault_onset": self.fault_onset,
             "fault_families": {
                 str(fault_id): family for fault_id, family in self.fault_families
             },
         }
+        if self.stored_feature_indices is not None:
+            summary["stored_feature_indices"] = list(self.stored_feature_indices)
+        if self.normal_stored_width is not None or self.fault_stored_width is not None:
+            summary["stored_widths"] = {
+                "normal": self.normal_stored_width,
+                "fault": self.fault_stored_width,
+            }
+        return summary
 
 
-_CSTR_CLOSED_LOOP_PROTOCOL = CSTRFaultProtocol(
+# P1 已在内部使用过 CSTR 专名；保留别名可避免外部研究脚本在通用化后失效。
+CSTRFaultProtocol = FaultDatasetProtocol
+
+
+_CSTR_CLOSED_LOOP_PROTOCOL = FaultDatasetProtocol(
     feature_names=("Ci", "Ti", "Tci", "C", "T", "Tc", "Qc"),
     feature_roles=(
         "control_input",
@@ -167,6 +279,34 @@ _CSTR_CLOSED_LOOP_PROTOCOL = CSTRFaultProtocol(
         (8, "sensor"),
     ),
     description_file="7v 正序, 8c 故障.txt",
+    normal_stored_width=7,
+    fault_stored_width=7,
+)
+
+TTS_SIX_FAULT_PROTOCOL = FaultDatasetProtocol(
+    feature_names=("Q1", "Q2", "Q1s", "Q2s", "h1", "h2", "h3"),
+    feature_roles=(
+        "control_input",
+        "control_input",
+        "measured_output",
+        "measured_output",
+        "measured_output",
+        "measured_output",
+        "measured_output",
+    ),
+    fault_onset=200,
+    fault_families=(
+        (1, "actuator"),
+        (2, "actuator"),
+        (3, "actuator"),
+        (4, "sensor"),
+        (5, "sensor"),
+        (6, "sensor"),
+    ),
+    description_file="7v+6f 正序, 6c 故障.txt",
+    stored_feature_indices=tuple(range(7)),
+    normal_stored_width=7,
+    fault_stored_width=13,
 )
 
 
@@ -497,47 +637,125 @@ class CSTRFaultAdapter:
 
 
 class TTSFaultDiagnosisAdapter:
-    """Read Three-Tank-System fault-diagnosis MAT files."""
+    """读取论文 P11 使用的三容水箱七变量、六故障 MAT 发布变体。
+
+    该适配器把 ``fe`` 目录中前七列过程变量映射为两个控制输入和五个测量输出，并在
+    onset=200 后赋故障标签。测试 MAT 随附的后六列故障输出是答案信息，读取边界会按
+    静态列协议排除它们；适配器不训练模型、不拟合阈值，也不比较 CSTR/TTS 性能。
+    """
 
     name = "tts_fault_diagnosis"
     version = "real-v1"
-    description = "Three-tank-system fault-diagnosis dataset."
-
-    def __init__(self) -> None:
-        self._fallback = SyntheticProcessAdapter(
-            name=self.name,
-            task_name="fault_diagnosis",
-            description="Deterministic TTS-style fault-diagnosis smoke dataset.",
-            domain="process_control",
-        )
+    description = "Three-tank-system seven-variable, six-fault diagnosis dataset."
+    protocol = TTS_SIX_FAULT_PROTOCOL
 
     def read(self, *, root: str | Path | None = None, task: str | None = None) -> CanonicalDataset:
+        """读取 TTS 正常训练与六个故障 episode，并恢复物理语义和来源追溯。
+
+        参数：
+            root: TTS 家族根目录或直接的 ``fe`` 目录；为空时只返回 smoke fallback。
+            task: 仅接受 ``fault_diagnosis``。
+        返回：
+            具有物理 schema、raw_index、onset 标签和文件 SHA-256 的规范数据集。
+        异常：
+            任务错误、文件缺失、MAT 结构/列宽/故障编号不符时抛出
+            ``ValueError``、``FileNotFoundError`` 或底层读取异常。
+        副作用：
+            ``root`` 非空时读取两个 MAT 与说明文件并计算 hash；不写文件、不访问网络，
+            不把故障值用于任何拟合、校准或结构选择。
+        """
+
         if root is None:
-            return self._fallback.read(root=None, task=task)
-        root_path = _resolve_dataset_root(root, "fd", required=("train/[train].mat",))
-        train_segments = _mat_fault_segments(root_path / "train" / "[train].mat", split="train", normal=True)
-        test_segments = _mat_fault_segments(root_path / "test" / "[test].mat", split="test", normal=False)
+            self.default_task(task)
+            return _tts_six_fault_smoke_dataset(self)
+        self.default_task(task)
+        root_path = _resolve_dataset_root(root, "fe", required=("train/[train].mat",))
+        train_path = root_path / "train" / "[train].mat"
+        test_path = root_path / "test" / "[test].mat"
+        description_path = root_path / self.protocol.description_file
+        files = {
+            "train": _file_summary(train_path),
+            "test": _file_summary(test_path),
+            "description": _file_summary(description_path),
+        }
+        train_segments = _mat_fault_segments(
+            train_path,
+            split="train",
+            normal=True,
+            protocol=self.protocol,
+            source_sha256=str(files["train"]["sha256"]),
+        )
+        test_segments = _mat_fault_segments(
+            test_path,
+            split="test",
+            normal=False,
+            protocol=self.protocol,
+            source_sha256=str(files["test"]["sha256"]),
+        )
         return _canonical(
             name=self.name,
             version=self.version,
             root=root_path,
             splits={"train": train_segments, "test": test_segments},
-            schema=_fault_schema(7, domain="process_control"),
+            schema=self.schema(),
             access=_OA_ACCESS,
+            metadata={**self.protocol.summary(), "files": files},
         )
 
     def schema(self) -> DataSchema:
-        return _fault_schema(7, domain="process_control")
+        """返回七个物理变量与不可作为模型输入的追溯/标签列。
+
+        返回：
+            两列 ``control_input``、五列 ``measured_output``，以及 time、raw_index、
+            segment、fault_id 的 ``DataSchema``。
+        异常：
+            协议名称、角色和列数不一致时由 ``_fault_schema`` 抛出 ``ValueError``。
+        副作用：
+            无。不读取 MAT，也不暴露后六列故障输出。
+        """
+
+        return _fault_schema(
+            len(self.protocol.feature_names),
+            domain="process_control",
+            feature_names=self.protocol.feature_names,
+            feature_roles=self.protocol.feature_roles,
+            include_raw_index=True,
+        )
 
     def default_task(self, task: str | None = None) -> TaskSchema:
-        return _fault_task(task)
+        """返回只允许七个物理过程变量的故障诊断任务。
+
+        参数：
+            task: ``fault_diagnosis`` 或 ``None``。
+        返回：
+            写明输入角色、标签列、正常标签和 onset=200 的 ``TaskSchema``。
+        异常：
+            其他任务名由 ``_fault_task`` 拒绝。
+        副作用：
+            无。
+        """
+
+        return _fault_task(
+            task,
+            inputs=self.protocol.input_roles(),
+            fault_switch=self.protocol.fault_onset,
+        )
 
     def default_pipeline(self, task: str | None = None) -> dict[str, Any]:
+        """返回官方 split 与仅正常训练拟合的标准预处理声明。"""
+
         self.default_task(task)
         return _standard_official_pipeline()
 
     def summary(self, task: str | None = None) -> dict[str, Any]:
-        return _summary(self, self.default_task(task), access=_OA_ACCESS, files={"root": "TTS/fd"})
+        """返回不访问文件的 TTS preset、任务、许可与预期目录摘要。"""
+
+        return _summary(
+            self,
+            self.default_task(task),
+            access=_OA_ACCESS,
+            files={"root": "TTS/fe"},
+        )
 
 
 @dataclass(frozen=True)
@@ -1077,6 +1295,92 @@ def _closed_loop_cstr_smoke_dataset(adapter: CSTRFaultAdapter) -> CanonicalDatas
     )
 
 
+def _tts_six_fault_smoke_dataset(
+    adapter: TTSFaultDiagnosisAdapter,
+) -> CanonicalDataset:
+    """生成与七变量 TTS 物理 schema 一致的确定性 smoke 数据。
+
+    参数：
+        adapter: 使用 ``TTS_SIX_FAULT_PROTOCOL`` 的公开 TTS 适配器。
+    返回：
+        一个正常 train episode 和一个 fault01 test episode；列角色、raw_index 与
+        onset=200 均与真实适配器一致，但不含真实故障输出通道。
+    异常：
+        协议列数与生成矩阵不一致时由 ``_feature_frame`` 抛出 ``ValueError``。
+    副作用：
+        无文件/网络/随机访问；解析信号只验证公共管线，绝不能作为 TTS 性能或机理证据。
+    """
+
+    protocol = adapter.protocol
+
+    def _frame(*, rows: int, episode: str, fault_id: int) -> pd.DataFrame:
+        """用非退化解析信号构造单个 TTS smoke episode。"""
+
+        time = np.arange(rows, dtype=float)
+        q1 = 1.0 + 0.1 * np.sin(time / 17.0)
+        q2 = 0.8 + 0.08 * np.cos(time / 19.0)
+        q1s = q1 + 0.01 * np.sin(time / 7.0)
+        q2s = q2 + 0.01 * np.cos(time / 11.0)
+        h1 = 0.6 * q1 + 0.2 * q2
+        h2 = 0.3 * q1 + 0.5 * q2
+        h3 = 0.4 * h1 + 0.5 * h2
+        values = np.column_stack((q1, q2, q1s, q2s, h1, h2, h3))
+        labels = _episode_fault_labels(
+            row_count=rows,
+            fault_id=fault_id,
+            fault_onset=protocol.fault_onset,
+        )
+        return _feature_frame(
+            values,
+            label=labels,
+            segment_id=episode,
+            feature_names=protocol.feature_names,
+            include_raw_index=True,
+        )
+
+    train_rows = max(256, protocol.fault_onset + 1)
+    test_rows = max(240, protocol.fault_onset + 1)
+    return CanonicalDataset(
+        splits={
+            "train": (
+                _segment(
+                    _frame(rows=train_rows, episode="normal", fault_id=0),
+                    split="train",
+                    source=f"synthetic:{adapter.name}/train",
+                    segment_id="normal",
+                    metadata={
+                        "episode": "normal",
+                        "episode_fault_id": 0,
+                        "fault_family": "normal",
+                        "fault_onset": None,
+                    },
+                ),
+            ),
+            "test": (
+                _segment(
+                    _frame(rows=test_rows, episode="fault01", fault_id=1),
+                    split="test",
+                    source=f"synthetic:{adapter.name}/test",
+                    segment_id="fault01",
+                    metadata={
+                        "episode": "fault01",
+                        "episode_fault_id": 1,
+                        "fault_family": protocol.fault_family(1),
+                        "fault_onset": protocol.fault_onset,
+                    },
+                ),
+            ),
+        },
+        schema=adapter.schema(),
+        metadata={
+            "source_type": "builtin_synthetic",
+            "preset": adapter.name,
+            "version": "synthetic-smoke-v1",
+            **protocol.summary(),
+        },
+    )
+
+
 def _summary(
     adapter: Any,
     task: TaskSchema,
@@ -1154,7 +1458,7 @@ def _mat_fault_segments(
     *,
     split: str,
     normal: bool,
-    protocol: CSTRFaultProtocol | None = None,
+    protocol: FaultDatasetProtocol | None = None,
     source_sha256: str | None = None,
 ) -> tuple[Segment, ...]:
     """把 MAT key 转成互不跨越的 episode，并按协议生成逐行标签。
@@ -1163,7 +1467,8 @@ def _mat_fault_segments(
         path: 包含一个或多个 episode key 的 MAT 文件。
         split: 写入每个 ``SegmentInfo`` 的官方 split 名称。
         normal: 为真时强制所有 key 视为正常 episode。
-        protocol: 可选物理协议；为空时保留旧数据集的整段标签行为。
+        protocol: 可选物理协议；为空时保留旧数据集的整段标签行为。协议可声明静态
+            存储列选择，以在 frame 构造前排除故障输出等答案通道。
         source_sha256: 已由调用方计算的原始文件哈希，只写入来源元数据。
     返回：
         按 MAT key 排序的 ``Segment`` 元组；每个 key 都是独立窗口边界。
@@ -1185,6 +1490,9 @@ def _mat_fault_segments(
         feature_names: tuple[str, ...] | None = None
         include_raw_index = False
         if protocol is not None:
+            # 列选择必须发生在 schema/frame 边界之前；否则随数据发布的故障输出会被通用
+            # 特征命名悄悄送入模型。选择只依赖静态说明，不查看数值或评价表现。
+            values = protocol.select_stored_features(values, normal=normal)
             labels = _episode_fault_labels(
                 row_count=values.shape[0],
                 fault_id=fault_id,
@@ -1535,6 +1843,8 @@ def _as_2d(array: Any) -> np.ndarray:
 
 __all__ = [
     "CSTRFaultAdapter",
+    "CSTRFaultProtocol",
+    "FaultDatasetProtocol",
     "HYFaultAdapter",
     "HYQualityPredictionAdapter",
     "MultiphaseFaultAdapter",

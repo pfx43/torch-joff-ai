@@ -1,23 +1,26 @@
-"""论文 P10 三条运行入口的严格配置、解析身份与冻结就绪检查。
+"""论文 P10/P11 运行入口的严格配置、解析身份与冻结就绪检查。
 
 文件用途：
-    把 synthetic CPU smoke、CSTR 正常开发和 CSTR frozen evaluation 明确区分为三种模式，
-    防止开发配置或未核实许可通过同一个宽松字典误入正式故障入口。
+    把 synthetic CPU smoke、CSTR/TTS 正常开发和 CSTR frozen evaluation 明确区分，
+    防止次级数据集开发、未核实许可或宽松字典误入正式故障入口。
 主要职责：
     定义嵌套 Pydantic 严格配置、保留 resolved config/provenance/16 位 hash，并以只读检查
-    报告 frozen 模式的许可、原始文件 hash 和 P2--P9 正常产物是否就绪。本文件不训练模型、
-    不加载 MAT 数值、不创建 manifest，也不占用 evaluation ID。
+    报告 frozen 模式的许可、原始文件 hash 和 P2--P9 正常产物是否就绪；P11 次级开发
+    额外声明 CSTR 主提交、配置和正式 manifest/bundle 身份。本文件不训练模型、不加载
+    MAT 数值、不创建 manifest。
 关键输入与输出：
     输入为 ``configs/paper/*.yaml``、等价映射或已经校验的配置；输出为
     ``ResolvedFrozenEvaluationConfig`` 和稳定的 readiness error 列表。
 依赖与副作用：
     依赖 PyYAML、Pydantic、Joff ``StrictConfig`` 和标准库。解析 YAML 只读一个配置文件；
-    readiness 在许可为 ``verified`` 时才可流式核对声明的 raw file SHA-256，并检查正常产物
-    路径是否存在。模块导入和普通解析均不读数据、写文件或修改随机状态。
+    readiness 在许可为 ``verified`` 时才可流式核对声明的 raw file SHA-256，并检查正常
+    产物路径是否存在。模块导入和普通解析均不读数据、写文件或修改随机状态。
 重要约束：
     所有未知字段都拒绝；理论敏感风险、种子、episode 长度和 onset 没有隐藏默认值。
     ``to_verify`` 必须作为阻塞事实保留，不能被布尔转换误当成授权。readiness 只报告状态，
-    绝不自动修复路径、改许可、创建 claim 或回退为 smoke runtime。
+    绝不自动修复路径、改许可、创建 claim 或回退为 smoke runtime。TTS 只允许
+    development，其物理索引从数据层唯一协议对象派生；阻塞态不得执行，完成态也不得把
+    次级结果回写由 P10 提交、frozen 配置和正式 manifest 共同固定的 CSTR 选择。
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ import yaml  # type: ignore[import-untyped]
 from pydantic import Field, field_validator, model_validator
 
 from joff.core.config import StrictConfig
+from joff.data.adapters import TTS_SIX_FAULT_PROTOCOL
 from joff.data.paper_protocol import FiveStageSplitConfig
 from joff.evaluation.protected_reference import AnchorGateConfig
 from joff.models.protected_koopman_ts import ProtectedKoopmanTSConfig
@@ -45,6 +49,16 @@ from .paper_environment import sha256_file
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_SECONDARY_PHYSICAL_FEATURE_LAYOUTS = MappingProxyType(
+    {
+        "tts_fault_diagnosis": (
+            TTS_SIX_FAULT_PROTOCOL.role_indices("control_input"),
+            TTS_SIX_FAULT_PROTOCOL.role_indices("measured_output"),
+            TTS_SIX_FAULT_PROTOCOL.role_indices("exogenous_input"),
+        ),
+    }
+)
 
 
 class PaperEvaluationSeedsConfig(StrictConfig):
@@ -67,23 +81,23 @@ class PaperEvaluationSeedsConfig(StrictConfig):
 
 
 class PaperEvaluationDatasetConfig(StrictConfig):
-    """描述 smoke 或闭环 CSTR 数据身份，但不读取数据值。
+    """描述 smoke、闭环 CSTR 或 TTS 数据身份，但不读取数据值。
 
     参数：
-        name/root/normal_file/fault_file: synthetic 或真实闭环 CSTR 的路径身份。
+        name/root/normal_file/fault_file: synthetic、真实闭环 CSTR 或 TTS 的路径身份。
         license_status: 许可事实；只有 ``verified`` 可进入正式 manifest。
         feature_count/normal_rows/fault_episode_count/fault_episode_rows/fault_onset: 冻结几何。
         normal_source_hash/fault_source_hash: 可选 raw SHA-256；正式 readiness 必须存在。
     返回：
         冻结且拒绝未知字段的配置；相对文件始终相对 ``root``。
     异常：
-        episode 不是八个、onset 越界、路径/许可模式冲突或 hash 非法时抛出 Pydantic
-        ``ValidationError``。
+        episode 数与数据集协议不符、onset 越界、路径/许可模式冲突或 hash 非法时抛出
+        Pydantic ``ValidationError``。
     副作用：
         无；构造不访问路径或 MAT 内容。
     """
 
-    name: Literal["synthetic_cstr", "cstr_closed_loop_fd"]
+    name: Literal["synthetic_cstr", "cstr_closed_loop_fd", "tts_fault_diagnosis"]
     root: Path | None
     normal_file: Path | None
     fault_file: Path | None
@@ -113,10 +127,14 @@ class PaperEvaluationDatasetConfig(StrictConfig):
 
     @model_validator(mode="after")
     def _validate_episode_geometry(self) -> "PaperEvaluationDatasetConfig":
-        """固定八个 CSTR episode，并保证 onset 位于 episode 内。"""
+        """固定各数据集 episode 字典，并保证 onset 位于 episode 内。"""
 
-        if self.fault_episode_count != 8:
-            raise ValueError("P10 CSTR entry configs require exactly eight fault episodes.")
+        expected_episode_count = 6 if self.name == "tts_fault_diagnosis" else 8
+        if self.fault_episode_count != expected_episode_count:
+            raise ValueError(
+                f"{self.name} entry configs require exactly "
+                f"{expected_episode_count} fault episodes."
+            )
         if self.fault_onset >= self.fault_episode_rows:
             raise ValueError("fault_onset must identify a row inside each fault episode.")
         if self.name == "synthetic_cstr":
@@ -126,7 +144,132 @@ class PaperEvaluationDatasetConfig(StrictConfig):
                 raise ValueError("Synthetic CSTR must not declare real data paths.")
         else:
             if self.root is None or self.normal_file is None or self.fault_file is None:
-                raise ValueError("Real CSTR config requires root, normal_file and fault_file.")
+                raise ValueError(
+                    "Real paper dataset config requires root, normal_file and fault_file."
+                )
+        return self
+
+
+class PaperPrimaryProtocolLockConfig(StrictConfig):
+    """P11 次级数据集开发必须复验的 CSTR 主协议完成状态与文件身份。
+
+    参数：
+        dataset_name/protocol_version: 主数据集与 P10 frozen 协议的稳定名称。
+        implementation_commit: 实现 P10 冻结工作流的完整 Git 提交身份。
+        frozen_config/frozen_config_sha256: 只读 CSTR frozen YAML 及其内容 SHA-256。
+        selection_status: 区分“只冻结软件配置、正式评价仍阻塞”和“正式冻结评价已完成”。
+        evaluation_id/manifest_path/manifest_sha256/manifest_hash/normal_artifact_bundle_hash:
+            仅完成态必填，逐层绑定正式 P10 manifest、其自哈希和 P2--P9 正常产物 bundle。
+        receipt_path/receipt_sha256: 仅完成态必填，绑定 P10 运行后 completion receipt；独立
+            verifier 将从该 receipt 继续复验 claim、artifact index 和全部逐时刻/表图来源。
+        secondary_results_may_modify_primary/fault_results_accessed: 必须恒为假，分别禁止
+            TTS/TE 回调 CSTR 选择，并证明创建本锁不曾使用故障结果。
+    返回：
+        冻结且拒绝未知字段的配置对象。
+    异常：
+        标识、提交/hash 格式、路径后缀或状态与证据组合非法时抛出 Pydantic
+        ``ValidationError``。
+    副作用：
+        无；构造只验证文本字段，真实文件 hash 在 development runner 开始时复验。
+    """
+
+    dataset_name: Literal["cstr_closed_loop_fd"]
+    protocol_version: str
+    implementation_commit: str
+    frozen_config: Path
+    frozen_config_sha256: str
+    selection_status: Literal[
+        "configuration_frozen_fault_evaluation_blocked",
+        "formal_cstr_frozen_evaluation_completed",
+    ]
+    evaluation_id: str | None = None
+    manifest_path: Path | None = None
+    manifest_sha256: str | None = None
+    manifest_hash: str | None = None
+    normal_artifact_bundle_hash: str | None = None
+    receipt_path: Path | None = None
+    receipt_sha256: str | None = None
+    secondary_results_may_modify_primary: Literal[False]
+    fault_results_accessed: Literal[False]
+
+    @field_validator("protocol_version", "evaluation_id")
+    @classmethod
+    def _validate_protocol_identifier(cls, value: str | None) -> str | None:
+        """要求可选主协议/评价名称可安全写入产物与日志。"""
+
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not _IDENTIFIER_RE.fullmatch(normalized):
+            raise ValueError("Primary protocol identifiers must use safe identifier syntax.")
+        return normalized
+
+    @field_validator("implementation_commit")
+    @classmethod
+    def _validate_commit(cls, value: str) -> str:
+        """要求完整小写 Git object id，避免短 hash 歧义。"""
+
+        if not _COMMIT_RE.fullmatch(value):
+            raise ValueError("Primary implementation_commit must be 40 lowercase hex characters.")
+        return value
+
+    @field_validator(
+        "frozen_config_sha256",
+        "manifest_sha256",
+        "manifest_hash",
+        "normal_artifact_bundle_hash",
+        "receipt_sha256",
+    )
+    @classmethod
+    def _validate_primary_hash(cls, value: str | None) -> str | None:
+        """要求主配置与完成态证据使用完整小写 SHA-256。"""
+
+        if value is not None and not _SHA256_RE.fullmatch(value):
+            raise ValueError("Primary protocol hashes must be lowercase SHA-256 values.")
+        return value
+
+    @field_validator("frozen_config")
+    @classmethod
+    def _validate_frozen_config_path(cls, value: Path) -> Path:
+        """限制主配置引用为 YAML 文件；存在性和仓库边界留给 runner 复验。"""
+
+        if value.suffix.lower() not in {".yaml", ".yml"}:
+            raise ValueError("Primary frozen_config must reference a YAML file.")
+        return value
+
+    @field_validator("manifest_path", "receipt_path")
+    @classmethod
+    def _validate_evidence_path(cls, value: Path | None) -> Path | None:
+        """限制完成态 manifest/receipt 为 JSON；存在性和内容留给 runner 复验。"""
+
+        if value is not None and value.suffix.lower() != ".json":
+            raise ValueError("Primary manifest/receipt paths must reference JSON files.")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_completion_evidence(self) -> "PaperPrimaryProtocolLockConfig":
+        """阻塞态禁止伪造完成证据，完成态则要求五项文件级身份全部存在。"""
+
+        completion_evidence = (
+            self.evaluation_id,
+            self.manifest_path,
+            self.manifest_sha256,
+            self.manifest_hash,
+            self.normal_artifact_bundle_hash,
+            self.receipt_path,
+            self.receipt_sha256,
+        )
+        completed = self.selection_status == "formal_cstr_frozen_evaluation_completed"
+        if completed and any(value is None for value in completion_evidence):
+            raise ValueError(
+                "A completed primary protocol lock requires evaluation_id, manifest_path, "
+                "manifest_sha256, manifest_hash, normal_artifact_bundle_hash, receipt_path "
+                "and receipt_sha256."
+            )
+        if not completed and any(value is not None for value in completion_evidence):
+            raise ValueError(
+                "A blocked primary protocol lock must not carry formal completion evidence."
+            )
         return self
 
 
@@ -329,7 +472,7 @@ class PaperDevelopmentConfig(StrictConfig):
 
 
 class FrozenEvaluationEntryConfig(StrictConfig):
-    """P10 smoke/development/frozen 的统一且受模式约束的入口配置。
+    """P10/P11 smoke/development/frozen 的统一且受模式约束的入口配置。
 
     参数：
         mode/protocol_version/evaluation_id/runtime: 协议与运行时身份。
@@ -337,6 +480,7 @@ class FrozenEvaluationEntryConfig(StrictConfig):
         detection_risk/attribution_risk: 检测 ``alpha`` 与严格更小的归因 ``beta``。
         seeds/dataset/development/normal_artifacts: 嵌套随机源、数据身份、正常开发参数和
             正常产物输入/输出路径。
+        primary_protocol_lock: 仅 TTS development 必须提供的 CSTR 主配置只读身份。
     返回：
         冻结且拒绝未知字段的 P10 入口。
     异常：
@@ -357,6 +501,7 @@ class FrozenEvaluationEntryConfig(StrictConfig):
     attribution_risk: float = Field(gt=0.0, lt=1.0)
     seeds: PaperEvaluationSeedsConfig
     dataset: PaperEvaluationDatasetConfig
+    primary_protocol_lock: PaperPrimaryProtocolLockConfig | None = None
     development: PaperDevelopmentConfig | None = None
     normal_artifacts: PaperNormalArtifactsConfig | None
 
@@ -389,27 +534,52 @@ class FrozenEvaluationEntryConfig(StrictConfig):
             if (
                 self.runtime != "synthetic_contract_smoke"
                 or self.dataset.name != "synthetic_cstr"
+                or self.primary_protocol_lock is not None
                 or self.development is not None
                 or self.normal_artifacts is not None
             ):
                 raise ValueError(
                     "Smoke mode requires synthetic_contract_smoke, synthetic_cstr and no "
-                    "normal_artifacts."
+                    "primary_protocol_lock or normal_artifacts."
                 )
-        else:
+        elif self.mode == "frozen":
             if (
                 self.runtime != "protected_koopman_ts"
                 or self.dataset.name != "cstr_closed_loop_fd"
+                or self.primary_protocol_lock is not None
             ):
                 raise ValueError(
-                    "Development/frozen modes require protected_koopman_ts and "
-                    "cstr_closed_loop_fd."
+                    "Frozen mode requires protected_koopman_ts, cstr_closed_loop_fd and no "
+                    "secondary primary_protocol_lock."
                 )
+        elif self.runtime != "protected_koopman_ts" or self.dataset.name not in {
+            "cstr_closed_loop_fd",
+            "tts_fault_diagnosis",
+        }:
+            raise ValueError(
+                "Development mode requires protected_koopman_ts and a supported real "
+                "CSTR/TTS dataset."
+            )
         if self.mode == "development":
             if self.development is None or self.normal_artifacts is None:
                 raise ValueError(
                     "Development entry config requires explicit development parameters and "
                     "normal_artifacts output paths."
+                )
+            if (
+                self.dataset.name == "tts_fault_diagnosis"
+                and self.primary_protocol_lock is None
+            ):
+                raise ValueError(
+                    "TTS development requires primary_protocol_lock so secondary results "
+                    "cannot change the CSTR protocol."
+                )
+            if (
+                self.dataset.name == "cstr_closed_loop_fd"
+                and self.primary_protocol_lock is not None
+            ):
+                raise ValueError(
+                    "Primary CSTR development must not declare a secondary protocol lock."
                 )
         elif self.development is not None:
             raise ValueError("Only development mode may declare development parameters.")
@@ -423,6 +593,21 @@ class FrozenEvaluationEntryConfig(StrictConfig):
             if covered != set(range(self.dataset.feature_count)):
                 raise ValueError(
                     "Development feature roles must cover every dataset feature exactly once."
+                )
+            # P11 的 TTS 发布只有这一套已核验物理列序；CSTR 的既有开发 fixture 仍允许
+            # 显式替换模型布局，避免次级扩展反向改变 P10 的兼容边界。
+            expected_layout = _SECONDARY_PHYSICAL_FEATURE_LAYOUTS.get(
+                self.dataset.name
+            )
+            observed_layout = (
+                layout.control_indices,
+                layout.measurement_indices,
+                layout.exogenous_indices,
+            )
+            if expected_layout is not None and observed_layout != expected_layout:
+                raise ValueError(
+                    f"{self.dataset.name} development physical feature layout must match "
+                    "the public dataset adapter schema."
                 )
         if self.attribution_risk >= self.detection_risk:
             raise ValueError(
@@ -581,7 +766,14 @@ def resolve_frozen_evaluation_config(
         explicit = _json_copy(dict(loaded))
         config = FrozenEvaluationEntryConfig.model_validate(explicit)
         source_label = f"yaml:{config_path}"
-    resolved = config.model_dump(mode="json")
+    # P11 的次级锁只在被显式声明时参与配置身份。若把新字段的默认 ``None`` 注入旧 CSTR
+    # resolved JSON，会在没有任何 P10 行为变化时改写其已冻结 hash，违反不回调主协议。
+    excluded = (
+        {"primary_protocol_lock"}
+        if config.primary_protocol_lock is None
+        else set()
+    )
+    resolved = config.model_dump(mode="json", exclude=excluded)
     encoded = json.dumps(
         resolved,
         ensure_ascii=False,
@@ -677,6 +869,7 @@ __all__ = [
     "PaperEvaluationSeedsConfig",
     "PaperNormalArtifactsConfig",
     "PaperNormalMethodConfig",
+    "PaperPrimaryProtocolLockConfig",
     "ResolvedFrozenEvaluationConfig",
     "resolve_frozen_evaluation_config",
 ]

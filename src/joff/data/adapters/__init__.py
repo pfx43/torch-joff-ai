@@ -20,6 +20,8 @@ from .base import CanonicalDataset, DatasetAdapter, DatasetCardAdapter, DatasetP
 from .builtin import SyntheticCSTRFaultAdapter, SyntheticProcessAdapter
 from .real_process import (
     CSTRFaultAdapter,
+    CSTRFaultProtocol,
+    FaultDatasetProtocol,
     HYFaultAdapter,
     HYQualityPredictionAdapter,
     MultiphaseFaultAdapter,
@@ -27,6 +29,7 @@ from .real_process import (
     TEClassificationAdapter,
     TEFaultDiagnosisAdapter,
     TTSFaultDiagnosisAdapter,
+    TTS_SIX_FAULT_PROTOCOL,
     WPTMPCAdapter,
 )
 from .registry import DatasetRegistry
@@ -131,7 +134,7 @@ DATASET_REGISTRY.register(
 )
 DATASET_REGISTRY.register(
     TTSFaultDiagnosisAdapter(),
-    aliases=("tts_fd", "tts/fd", "TTS/fd"),
+    aliases=("tts_fd", "tts/fd", "TTS/fd", "tts_fe", "tts/fe", "TTS/fe"),
     replace=True,
 )
 DATASET_REGISTRY.register(
@@ -179,6 +182,7 @@ LEGACY_SPECIAL_PRESETS = {
     "CSTR/fd": "cstr_fault_diagnosis",
     "CSTR/fd_close": "cstr_closed_loop_fd",
     "TTS/fd": "tts_fault_diagnosis",
+    "TTS/fe": "tts_fault_diagnosis",
     "HY/fd": "hy_fault_diagnosis",
     "HY_PRD": "hy_quality_prediction",
     "Multiphase_Flow_Facility": "multiphase_fd",
@@ -206,11 +210,13 @@ def register_dataset_adapter(
 __all__ = [
     "CanonicalDataset",
     "CSTRFaultAdapter",
+    "CSTRFaultProtocol",
     "DATASET_REGISTRY",
     "DatasetAdapter",
     "DatasetCardAdapter",
     "DatasetPreset",
     "DatasetRegistry",
+    "FaultDatasetProtocol",
     "HYFaultAdapter",
     "HYQualityPredictionAdapter",
     "LEGACY_SPECIAL_PRESETS",
@@ -222,6 +228,7 @@ __all__ = [
     "TEClassificationAdapter",
     "TEFaultDiagnosisAdapter",
     "TTSFaultDiagnosisAdapter",
+    "TTS_SIX_FAULT_PROTOCOL",
     "WPTMPCAdapter",
     "list_dataset_presets",
     "register_dataset_adapter",

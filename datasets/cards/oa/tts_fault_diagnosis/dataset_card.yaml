@@ -1,25 +1,44 @@
 name: tts_fault_diagnosis
 version: real-v1
-description: Three-tank-system fault-diagnosis dataset.
+description: Three-tank-system seven-variable, six-fault diagnosis dataset.
 access: {tag: oa, disclosure: open_access, license: to_verify}
-adapter: TTSAdapter
+adapter: TTSFaultDiagnosisAdapter
 files:
-  root: ../../../raw/oa/TTS/fd
+  root: ../../../raw/oa/TTS/fe
   train: train/[train].mat
   test: test/[test].mat
+  description: 7v+6f 正序, 6c 故障.txt
+source:
+  license_status: to_verify
+protocol:
+  fault_onset: 200
+  stored_feature_indices: [0, 1, 2, 3, 4, 5, 6]
+  protected_fault_output_count: 6
+  fault_families:
+    actuator: [1, 2, 3]
+    sensor: [4, 5, 6]
 schema:
   sample_rate: 1.0
   feature_count: 7
   columns:
     - {name: time, role: time}
-    - {name: x00, role: input}
+    - {name: raw_index, role: raw_index}
+    - {name: segment, role: segment}
+    - {name: Q1, role: control_input}
+    - {name: Q2, role: control_input}
+    - {name: Q1s, role: measured_output}
+    - {name: Q2s, role: measured_output}
+    - {name: h1, role: measured_output}
+    - {name: h2, role: measured_output}
+    - {name: h3, role: measured_output}
     - {name: fault_id, role: fault_id}
 tasks:
   fault_diagnosis:
-    inputs: [input]
+    inputs: [control_input, measured_output]
     targets: [fault_id]
     label_column: fault_id
     normal_label: 0
+    fault_switch: 200
 pipeline:
   split: {type: official}
   normalization: {method: standard}

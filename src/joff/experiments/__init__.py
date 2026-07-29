@@ -1,8 +1,8 @@
 """实验编排层的公共 API。
 
 文件用途：
-    汇总通用单次实验、Study/Runner、P3 五阶段正常协议，以及 P10 CSTR manifest、一次性
-    source/workflow、严格入口配置和 synthetic smoke，让调用方无需依赖包内文件布局。
+    汇总通用单次实验、Study/Runner、P3 五阶段正常协议、P10 CSTR frozen workflow，
+    以及 P11 CSTR/TTS 正常开发入口，让调用方无需依赖包内文件布局。
 主要职责：
     只重导出已经实现的配置、编排器、结果对象、P3 基线和 P10 冻结边界；不拥有实验状态，
     不替代 ``Experiment``、``PaperProtocolExperiment`` 或
@@ -67,12 +67,14 @@ from .paper_entrypoints import (
     PaperEvaluationSeedsConfig,
     PaperNormalArtifactsConfig,
     PaperNormalMethodConfig,
+    PaperPrimaryProtocolLockConfig,
     ResolvedFrozenEvaluationConfig,
     resolve_frozen_evaluation_config,
 )
 from .paper_development import (
     PaperDevelopmentResult,
     run_cstr_normal_development,
+    run_paper_normal_development,
 )
 from .paper_freeze import (
     build_cstr_protocol_from_artifacts,
@@ -138,6 +140,7 @@ __all__ = [
     "PaperEvaluationSeedsConfig",
     "PaperNormalArtifactsConfig",
     "PaperNormalMethodConfig",
+    "PaperPrimaryProtocolLockConfig",
     "PaperProtocolConfig",
     "PaperProtocolExperiment",
     "PaperProtocolResult",
@@ -154,6 +157,7 @@ __all__ = [
     "resolve_paper_protocol_config",
     "resolve_frozen_evaluation_config",
     "run_cstr_normal_development",
+    "run_paper_normal_development",
     "run_paper_smoke",
     "verify_frozen_evaluation_artifacts",
 ]
