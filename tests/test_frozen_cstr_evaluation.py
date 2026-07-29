@@ -1608,6 +1608,7 @@ def test_three_paper_entry_configs_are_strict_and_expose_frozen_readiness_gates(
     assert development.config.development is not None
     assert development.config.normal_artifacts is not None
     assert frozen.config.mode == "frozen"
+    assert frozen.config.evaluation_id == "cstr-frozen-pending-certified-runtime"
     assert len(smoke.config_hash) == 16
     assert resolve_frozen_evaluation_config(smoke_path).config_hash == smoke.config_hash
     assert smoke.provenance["mode"][0]["source"].startswith("yaml:")

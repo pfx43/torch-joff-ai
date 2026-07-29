@@ -5,7 +5,8 @@
     产物确实可用，避免示例只在仓库当前目录偶然成功。
 主要职责：
     覆盖通用模型示例、数据/Study 示例以及论文 P10 synthetic contract smoke；只检查公开
-    命令的退出码与关键产物，不复算模型内部单元逻辑。
+    命令的退出码与关键产物，并确认真实 CSTR 配置会在 development-only runtime 处阻断；
+    不复算模型内部单元逻辑。
 关键输入与输出：
     输入为 pytest 临时运行根和显式 ``--smoke``/``--run-root`` 参数；输出全部位于
     ``tmp_path``，测试断言配置、checkpoint、图、manifest、逐时刻来源和 receipt。
@@ -136,10 +137,10 @@ def test_paper_smoke_runs_frozen_contract_without_real_fault_data(tmp_path) -> N
     assert (evaluation_dir / "evaluation_receipt.json").exists()
 
 
-def test_frozen_evaluation_command_blocks_before_claim_while_license_is_unverified(
+def test_frozen_evaluation_command_blocks_before_claim_while_runtime_is_development_only(
     tmp_path: Path,
 ) -> None:
-    """显式 frozen 命令报告 readiness，当前 to_verify 状态不得创建运行目录或 claim。"""
+    """许可证和正常产物就绪后，未认证 runtime 仍须在 manifest/claim 前关闭。"""
 
     env = os.environ.copy()
     src = str(ROOT / "src")
@@ -162,10 +163,12 @@ def test_frozen_evaluation_command_blocks_before_claim_while_license_is_unverifi
         check=False,
     )
 
-    assert completed.returncode == 2, completed.stderr
+    assert completed.returncode == 3, completed.stderr
     payload = json.loads(completed.stdout)
-    assert payload["status"] == "blocked"
-    assert any("license" in error and "to_verify" in error for error in payload["errors"])
+    assert payload["status"] == "blocked_runtime_driver"
+    assert any("complete P4--P9 pipeline" in error for error in payload["errors"])
+    assert payload["claim_created"] is False
+    assert payload["fault_data_accessed"] is False
     assert not (tmp_path / "runs").exists()
 
 

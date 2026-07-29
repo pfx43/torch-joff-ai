@@ -1,6 +1,6 @@
 mode: frozen
 protocol_version: cstr-frozen-v1
-evaluation_id: cstr-frozen-pending-license-and-normal-artifacts
+evaluation_id: cstr-frozen-pending-certified-runtime
 artifact_root: runs
 run_name: cstr_frozen
 claim_registry: runs/.frozen-evaluation-claims
