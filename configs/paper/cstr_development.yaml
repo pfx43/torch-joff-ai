@@ -1,0 +1,135 @@
+mode: development
+protocol_version: cstr-development-v1
+evaluation_id: cstr-development-normal-only
+artifact_root: runs
+run_name: cstr_development
+claim_registry: runs/.frozen-evaluation-claims
+device: cpu
+runtime: protected_koopman_ts
+detection_risk: 0.1
+attribution_risk: 0.05
+seeds:
+  python: 42
+  numpy: 42
+  torch: 42
+  dataloader: 42
+dataset:
+  name: cstr_closed_loop_fd
+  root: datasets/raw/oa/CSTR/fd_close
+  normal_file: train/model1[train].mat
+  fault_file: test/model1[test].mat
+  license_status: to_verify
+  feature_count: 7
+  normal_rows: 16814
+  fault_episode_count: 8
+  fault_episode_rows: 1201
+  fault_onset: 200
+  normal_source_hash: ef889b69b5ffa270b96a7ded86595b066a8b278df0cb39ddbb3ad18dacdd9839
+  fault_source_hash: null
+development:
+  method:
+    model:
+      type: protected_koopman_ts
+      control_dim: 3
+      measurement_dim: 4
+      exogenous_dim: 0
+      history_length: 3
+      latent_dim: 8
+      context_dim: 8
+      max_rollout: 3
+      horizon_seed: 59
+      attention:
+        embed_dim: 16
+        num_heads: 2
+        dropout: 0.0
+      channel_mask:
+        all_pass_probability: 0.5
+        single_channel_probability: 0.25
+        independent_drop_probability: 0.4
+        seed: 31
+      fuzzy:
+        rule_count: 3
+        premise_dim: 8
+        premise_hidden_dim: 16
+        metric_eigenvalue_min: 0.1
+        metric_eigenvalue_max: 2.0
+        spectral_cap: 1.1
+      loss:
+        horizon_weights: [1.0, 1.5, 2.0]
+        latent_weight: 1.0
+        output_weight: 1.0
+        decoding_weight: 0.5
+        variance_weight: 0.1
+        rule_balance_weight: 0.1
+        jacobian_product_weight: 0.1
+        minimum_latent_std: 0.1
+        maximum_jacobian_product_norm: 2.0
+  split:
+    ratios: [0.55, 0.15, 0.10, 0.10, 0.10]
+    history_length: 3
+    max_rollout: 3
+    stacked_window: 1
+    mask_recompute_span: 0
+    minimum_gap: 0
+    window_stride: 1
+    episode_length: 64
+    target_risk_level: 0.05
+    seed: 42
+    strategy: chronological
+  training:
+    epochs: 5
+    batch_size: 64
+    learning_rate: 0.001
+    weight_decay: 0.0
+  feature_layout:
+    control_indices: [0, 1, 2]
+    measurement_indices: [3, 4, 5, 6]
+    exogenous_indices: []
+  anchor_gate:
+    confirmation_delay: 2
+    enter_threshold: 2.0
+    exit_threshold: 3.0
+    minimum_reanchor_interval: 8
+    maximum_reference_age: 3
+  branch_id: guard
+  mode: guard-only
+  normal_family_id: normal
+  unresolved_family_id: unresolved-fault
+  threshold_floor: 1.0e-8
+  gamma_anc: 0.0
+  deterministic_intercept: 0.0
+  input_l1_weight: 0.0
+normal_artifacts:
+  resolved_config: runs/cstr_development/resolved_config.yaml
+  provenance: runs/cstr_development/provenance.json
+  split_manifest: runs/cstr_development/protocol/split_manifest.json
+  fit_access_ledger: runs/cstr_development/protocol/fit_access_ledger.json
+  training_history: runs/cstr_development/training/protected_koopman_ts.json
+  training_checkpoint: runs/cstr_development/training/protected_koopman_ts.pt
+  checkpoint_files:
+    protected_koopman_ts: runs/cstr_development/checkpoints/protected_koopman_ts.pt
+  checkpoint_replay: runs/cstr_development/replay/protected_koopman_ts.json
+  checkpoint_replay_outputs:
+    frozen_normal: runs/cstr_development/replay/frozen_normal_outputs.jsonl
+  structure_selection: runs/cstr_development/method/structure_selection.json
+  monitoring_score_scaler: runs/cstr_development/method/monitoring_score_scaler.json
+  deterministic_envelope: runs/cstr_development/method/deterministic_envelope.json
+  innovation_covariance: runs/cstr_development/method/innovation_covariance.json
+  postfilter_library: runs/cstr_development/method/postfilter_library.json
+  monitor_policy: runs/cstr_development/method/monitor_policy.json
+  operator_bundle: runs/cstr_development/method/operator_bundle.json
+  detection_calibration: runs/cstr_development/calibration/detection.json
+  attribution_calibration: runs/cstr_development/calibration/attribution.json
+  isolation_library: runs/cstr_development/method/isolation_library.json
+  certification_status: runs/cstr_development/method/certification_status.json
+  ledger_bindings:
+    model: training_checkpoint
+    structure: structure_selection
+    score-scaler: monitoring_score_scaler
+    envelope: deterministic_envelope
+    covariance: innovation_covariance
+    branch-library: postfilter_library
+    state-machine: monitor_policy
+    q-det: detection_calibration
+    q-attr: attribution_calibration
+    normal-diagnostic: checkpoint_replay_outputs.frozen_normal

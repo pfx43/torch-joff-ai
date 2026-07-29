@@ -1,8 +1,27 @@
+"""仓库公开示例脚本的子进程 smoke 测试。
+
+文件用途：
+    从仓库外工作目录启动示例，验证安装前 ``PYTHONPATH=src`` 路径、CPU 最小运行和约定
+    产物确实可用，避免示例只在仓库当前目录偶然成功。
+主要职责：
+    覆盖通用模型示例、数据/Study 示例以及论文 P10 synthetic contract smoke；只检查公开
+    命令的退出码与关键产物，不复算模型内部单元逻辑。
+关键输入与输出：
+    输入为 pytest 临时运行根和显式 ``--smoke``/``--run-root`` 参数；输出全部位于
+    ``tmp_path``，测试断言配置、checkpoint、图、manifest、逐时刻来源和 receipt。
+依赖与副作用：
+    通过 ``subprocess`` 启动当前 Python，最长等待 90 秒；不访问网络、不读取真实 CSTR
+    故障文件，不修改仓库内 ``runs``。
+重要约束：
+    smoke 数值只能证明代码路径可运行，不能作为论文性能、认证或数据许可证据。
+"""
+
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 
@@ -91,6 +110,63 @@ def test_repeat_study_smoke_example_runs_and_writes_leaderboard(tmp_path) -> Non
     assert (run_dir / "summary" / "summary.csv").exists()
     assert (run_dir / "summary" / "leaderboard.csv").exists()
     assert (run_dir / "best" / "metrics.json").exists()
+
+
+def test_paper_smoke_runs_frozen_contract_without_real_fault_data(tmp_path) -> None:
+    """P10 synthetic 入口覆盖 manifest、一次性评价和机器来源，不触碰真实 CSTR。"""
+
+    run_root = tmp_path / "runs"
+    completed = _run_example(
+        "paper_smoke.py",
+        "--run-root",
+        str(run_root),
+        cwd=tmp_path,
+    )
+    assert completed.returncode == 0, completed.stderr
+    run_dir = run_root / "paper_smoke"
+    assert (run_dir / "resolved_config.yaml").exists()
+    assert (run_dir / "provenance.json").exists()
+    assert (run_dir / "frozen_protocol_manifest.json").exists()
+    evaluation_dir = run_dir / "frozen_evaluation"
+    assert (evaluation_dir / "pointwise" / "all_outputs.jsonl").exists()
+    assert (evaluation_dir / "sources" / "score_trajectories.csv").exists()
+    assert (evaluation_dir / "sources" / "detection_by_episode.csv").exists()
+    assert (evaluation_dir / "sources" / "isolation_by_episode.csv").exists()
+    assert (evaluation_dir / "artifact_index.json").exists()
+    assert (evaluation_dir / "evaluation_receipt.json").exists()
+
+
+def test_frozen_evaluation_command_blocks_before_claim_while_license_is_unverified(
+    tmp_path: Path,
+) -> None:
+    """显式 frozen 命令报告 readiness，当前 to_verify 状态不得创建运行目录或 claim。"""
+
+    env = os.environ.copy()
+    src = str(ROOT / "src")
+    env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "joff.experiments.frozen_cli",
+            "--config",
+            str(ROOT / "configs" / "paper" / "cstr_frozen.yaml"),
+            "--repo-root",
+            str(ROOT),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 2, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "blocked"
+    assert any("license" in error and "to_verify" in error for error in payload["errors"])
+    assert not (tmp_path / "runs").exists()
 
 
 def _run_example(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:

@@ -56,6 +56,7 @@ from .paper_baselines import (
     build_paper_baseline,
     load_paper_baseline,
 )
+from .paper_environment import sha256_file
 
 _SCALE_EPSILON = 1e-12
 _CALIBRATION_STAGES = frozenset(
@@ -1052,7 +1053,7 @@ class PaperProtocolExperiment:
             )
             self.bundle.fit_access_ledger.freeze_record(
                 object_id,
-                _sha256_file(checkpoint_path),
+                sha256_file(checkpoint_path),
             )
             if fit_result.history:
                 store.save_table(
@@ -1097,7 +1098,7 @@ class PaperProtocolExperiment:
                 Path("baselines") / name / "monitoring_score_scaler.json",
                 runtime.scaler.manifest(),
             )
-            self.bundle.fit_access_ledger.freeze_record(object_id, _sha256_file(path))
+            self.bundle.fit_access_ledger.freeze_record(object_id, sha256_file(path))
 
     def _calibrate_all(
         self,
@@ -1154,7 +1155,7 @@ class PaperProtocolExperiment:
                 Path("baselines") / name / f"{stage.value}.json",
                 calibration.manifest(),
             )
-            self.bundle.fit_access_ledger.freeze_record(object_id, _sha256_file(path))
+            self.bundle.fit_access_ledger.freeze_record(object_id, sha256_file(path))
             runtime.stage_scores[stage] = scores
             if stage is StageName.DETECTION_CALIBRATION:
                 runtime.detection_calibration = calibration
@@ -1222,7 +1223,7 @@ class PaperProtocolExperiment:
                 Path("baselines") / name / "checkpoint_replay.json",
                 {
                     "baseline": name,
-                    "checkpoint_sha256": _sha256_file(runtime.checkpoint_path),
+                    "checkpoint_sha256": sha256_file(runtime.checkpoint_path),
                     "stage": stage.value,
                     "matches": matches,
                     "absolute_tolerance": 1e-7,
@@ -1259,7 +1260,7 @@ class PaperProtocolExperiment:
             )
             self.bundle.fit_access_ledger.freeze_record(
                 object_id,
-                _sha256_file(diagnostic_path),
+                sha256_file(diagnostic_path),
             )
             score_paths[name] = score_path
             replay_paths[name] = replay_path
@@ -1384,26 +1385,6 @@ def _score_batch_hash(scores: BaselineScoreBatch) -> str:
         digest.update(encoded_name)
         digest.update(np.asarray(values.shape, dtype="<i8").tobytes(order="C"))
         digest.update(values.tobytes(order="C"))
-    return digest.hexdigest()
-
-
-def _sha256_file(path: str | Path) -> str:
-    """流式计算本地产物文件 SHA-256。
-
-    参数：
-        path: 已存在文件。
-    返回：
-        64 位小写十六进制摘要。
-    异常：
-        文件读取失败时传播 ``OSError``。
-    副作用：
-        只读文件。
-    """
-
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
     return digest.hexdigest()
 
 

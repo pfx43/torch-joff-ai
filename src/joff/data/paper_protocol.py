@@ -7,7 +7,8 @@
 主要职责：
     定义 StageName、FiveStageSplitConfig、StageSlice、FiveStageSplitResult、
     FiveStageNormalSplitter、FitAccessLedger 和 PaperDataBundle；本文件不拟合 scaler、
-    不训练模型、不计算阈值或故障性能，也不替代 DatasetAdapter 读取原始文件。
+    不训练模型、不计算阈值或故障性能，也不替代 DatasetAdapter 读取原始文件；P10 可在
+    正常协议冻结后通过单次授权门禁调用外部 lazy fault episode loader。
 关键输入与输出：
     输入为已规范化的正常 NumPy 数组、历史/rollout/堆叠依赖和风险配置；输出为五段原始
     行索引、合法窗口起点、完整 episode、隔离带、准备后数据 hash 和可序列化 manifest。
@@ -17,7 +18,8 @@
 重要约束：
     五段全部只能来自正常数据；检测校准与归因校准不得复用行或 episode；先切原始时间轴，
     再删除隔离带，再保留依赖行完全落在单段内的窗口。真实故障测试是五段之外的封存范围，
-    在协议未冻结或许可未核实时必须拒绝访问。
+    在协议未冻结或许可未核实时必须拒绝访问。外部 lazy source 的授权一旦成功即视为
+    已访问，即使后续加载失败也不能释放或重试同一正式评价。
 """
 
 from __future__ import annotations
@@ -639,6 +641,26 @@ _ESTIMATE_PURPOSES = frozenset(
     }
 )
 _DESIGN_PURPOSES = frozenset({FitPurpose.MODEL_PARAMETERS, *_ESTIMATE_PURPOSES})
+
+
+def fit_stage_policy_manifest() -> dict[str, tuple[str, ...]]:
+    """返回拟合用途到唯一允许正常阶段的稳定公开策略快照。
+
+    参数：
+        无。
+    返回：
+        以 ``FitPurpose.value`` 为键、阶段字符串元组为值的新字典；调用方可用于验证
+        已持久化账本，但修改返回值不会影响运行时门禁。
+    异常：
+        无。
+    副作用：
+        无；不会创建账本、读取阶段数组或改变内部只读策略。
+    """
+
+    return {
+        purpose.value: tuple(stage.value for stage in stages)
+        for purpose, stages in _FIT_STAGE_POLICY.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -1328,6 +1350,64 @@ class PaperDataBundle:
             )
         self._fault_accessed = True
         return self._fault_data.copy()
+
+    def authorize_frozen_fault_episode_source(
+        self,
+        expected_fault_source_hash: str,
+    ) -> None:
+        """为 P10 外部 lazy episode source 消耗一次冻结故障访问门禁。
+
+        参数：
+            expected_fault_source_hash: P10 manifest 和 lazy source 已共同核对的原始故障
+                文件 SHA-256，必须与 bundle 构造时封存的 ``fault_source_hash`` 一致。
+        返回：
+            无。成功只代表可以在本次调用之后执行 lazy loader，不返回任何故障数值。
+        异常：
+            正常协议/账本未冻结、未声明故障来源 hash、hash 不一致、许可非 ``verified``，
+            bundle 内已配置旧式拼接故障数组，或门禁已被消费时抛出
+            ``ProtocolAccessError``/``ValueError``。
+        副作用：
+            成功时立即把 ``fault_accessed`` 置为真。调用方必须先调用本方法、后调用
+            loader；loader 随后失败也不得回滚该状态或重试同一 evaluation ID。
+        """
+
+        if not self._protocol_frozen:
+            raise ProtocolAccessError(
+                "Frozen fault episode source is not available because the paper protocol "
+                "is not frozen."
+            )
+        if not self.fit_access_ledger.frozen or not self.fit_access_ledger.protocol_ready:
+            raise ProtocolAccessError(
+                "Frozen fault episode source requires a frozen, protocol-ready fit ledger."
+            )
+        if self._fault_accessed:
+            raise ProtocolAccessError(
+                "Frozen fault episode source was already accessed; one-shot access cannot "
+                "be reopened."
+            )
+        if self._fault_data is not None:
+            raise ProtocolAccessError(
+                "This bundle contains an in-memory frozen_fault_test; use "
+                "request_frozen_fault_test instead of the external lazy source gate."
+            )
+        normalized_hash = _source_hash(
+            expected_fault_source_hash,
+            field_name="expected_fault_source_hash",
+        )
+        if self.fault_source_hash is None:
+            raise ProtocolAccessError(
+                "Frozen fault episode source requires a predeclared fault_source_hash."
+            )
+        if normalized_hash != self.fault_source_hash:
+            raise ProtocolAccessError(
+                "Frozen fault episode source hash differs from the bundle declaration."
+            )
+        if self.fault_license_status is not FaultLicenseStatus.VERIFIED:
+            raise ProtocolAccessError(
+                "Frozen fault episode source license is not verified. "
+                f"Current status: {self.fault_license_status.value!r}."
+            )
+        self._fault_accessed = True
 
     def manifest(self) -> dict[str, Any]:
         """返回不含数组值的 bundle、split、账本和故障封存状态摘要。

@@ -22,6 +22,10 @@ dependencies = [
   "rich>=13.0",
 ]
 
+[project.scripts]
+joff-paper-development = "joff.experiments.paper_development:main"
+joff-paper-frozen = "joff.experiments.frozen_cli:main"
+
 [project.optional-dependencies]
 excel = ["openpyxl>=3.1"]
 hdf5 = ["h5py>=3.10"]

@@ -1,0 +1,62 @@
+mode: frozen
+protocol_version: cstr-frozen-v1
+evaluation_id: cstr-frozen-pending-license-and-normal-artifacts
+artifact_root: runs
+run_name: cstr_frozen
+claim_registry: runs/.frozen-evaluation-claims
+device: cpu
+runtime: protected_koopman_ts
+detection_risk: 0.1
+attribution_risk: 0.05
+seeds:
+  python: 42
+  numpy: 42
+  torch: 42
+  dataloader: 42
+dataset:
+  name: cstr_closed_loop_fd
+  root: datasets/raw/oa/CSTR/fd_close
+  normal_file: train/model1[train].mat
+  fault_file: test/model1[test].mat
+  license_status: to_verify
+  feature_count: 7
+  normal_rows: 16814
+  fault_episode_count: 8
+  fault_episode_rows: 1201
+  fault_onset: 200
+  normal_source_hash: ef889b69b5ffa270b96a7ded86595b066a8b278df0cb39ddbb3ad18dacdd9839
+  fault_source_hash: 83e438244bc30a76daf2873f20adc058c5096b67e26237205daf5965c2dba956
+normal_artifacts:
+  resolved_config: runs/cstr_development/resolved_config.yaml
+  provenance: runs/cstr_development/provenance.json
+  split_manifest: runs/cstr_development/protocol/split_manifest.json
+  fit_access_ledger: runs/cstr_development/protocol/fit_access_ledger.json
+  training_history: runs/cstr_development/training/protected_koopman_ts.json
+  training_checkpoint: runs/cstr_development/training/protected_koopman_ts.pt
+  checkpoint_files:
+    protected_koopman_ts: runs/cstr_development/checkpoints/protected_koopman_ts.pt
+  checkpoint_replay: runs/cstr_development/replay/protected_koopman_ts.json
+  checkpoint_replay_outputs:
+    frozen_normal: runs/cstr_development/replay/frozen_normal_outputs.jsonl
+  structure_selection: runs/cstr_development/method/structure_selection.json
+  monitoring_score_scaler: runs/cstr_development/method/monitoring_score_scaler.json
+  deterministic_envelope: runs/cstr_development/method/deterministic_envelope.json
+  innovation_covariance: runs/cstr_development/method/innovation_covariance.json
+  postfilter_library: runs/cstr_development/method/postfilter_library.json
+  monitor_policy: runs/cstr_development/method/monitor_policy.json
+  operator_bundle: runs/cstr_development/method/operator_bundle.json
+  detection_calibration: runs/cstr_development/calibration/detection.json
+  attribution_calibration: runs/cstr_development/calibration/attribution.json
+  isolation_library: runs/cstr_development/method/isolation_library.json
+  certification_status: runs/cstr_development/method/certification_status.json
+  ledger_bindings:
+    model: training_checkpoint
+    structure: structure_selection
+    score-scaler: monitoring_score_scaler
+    envelope: deterministic_envelope
+    covariance: innovation_covariance
+    branch-library: postfilter_library
+    state-machine: monitor_policy
+    q-det: detection_calibration
+    q-attr: attribution_calibration
+    normal-diagnostic: checkpoint_replay_outputs.frozen_normal

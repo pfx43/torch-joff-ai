@@ -1,0 +1,29 @@
+mode: smoke
+protocol_version: cstr-smoke-v1
+evaluation_id: cstr-smoke-eval-001
+artifact_root: runs
+run_name: paper_smoke
+claim_registry: runs/.frozen-evaluation-claims
+device: cpu
+runtime: synthetic_contract_smoke
+detection_risk: 0.75
+attribution_risk: 0.5
+seeds:
+  python: 7
+  numpy: 11
+  torch: 13
+  dataloader: 17
+dataset:
+  name: synthetic_cstr
+  root: null
+  normal_file: null
+  fault_file: null
+  license_status: synthetic_only
+  feature_count: 7
+  normal_rows: 240
+  fault_episode_count: 8
+  fault_episode_rows: 8
+  fault_onset: 3
+  normal_source_hash: null
+  fault_source_hash: null
+normal_artifacts: null
