@@ -1,7 +1,7 @@
 name: cstr_closed_loop_fd
 version: real-v1
 description: Closed-loop CSTR fault-diagnosis dataset.
-access: {tag: oa, disclosure: open_access, license: to_verify}
+access: {tag: oa, disclosure: open_access, license: BSD-3-Clause}
 adapter: CSTRFaultAdapter
 files:
   root: ../../../raw/oa/CSTR/fd_close
@@ -10,7 +10,15 @@ files:
   description: 7v 正序, 8c 故障.txt
 source:
   url: https://www.mathworks.com/matlabcentral/fileexchange/66189-feedback-controlled-cstr-process-for-fault-simulation
-  license_status: to_verify
+  version: 1.1.0.1
+  license_id: BSD-3-Clause
+  license_url: https://www.mathworks.com/matlabcentral/mlc-downloads/downloads/89e57c22-64a7-4cba-8aa3-da4279b09619/cb37e495-cbbf-47ab-90eb-605e5328de59/license/license.txt
+  license_text_sha256: 8c89de130c1e25815100e4dd5dcc3a9b602a74ee9b94f3eebf3513c53945b39e
+  copyright_notice: Copyright (c) 2018, Karl Ezra Pilario
+  local_model: simulink_close_loop/cstr_close.slx
+  local_model_sha256: 4555be2fa4c93ab43d2f24ab26e2bf6511ec25d701b231fc7d57f6657b523a81
+  verified_on: 2026-07-30
+  license_status: verified
 protocol:
   fault_onset: 200
   fault_families:

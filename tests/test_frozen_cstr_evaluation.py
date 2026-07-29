@@ -5,7 +5,8 @@
     数据被用于协议选择或同一 evaluation ID 被重复运行。
 主要职责：
     覆盖 manifest 的深层不可变性、往返重放、防篡改、八 episode 完整性、逐时刻集合
-    语义、持久化一次性 fault authorization、CLI readiness 和 artifact integrity。
+    语义、持久化一次性 fault authorization、CLI readiness、许可证证据和 artifact
+    integrity。
 关键输入与输出：
     测试使用固定 SHA-256、最小五段/校准/认证摘要和 pytest 临时目录；输出只是在临时
     目录中的 manifest 与评价产物，不读取仓库真实 CSTR 故障文件。
@@ -33,6 +34,7 @@ import subprocess
 import numpy as np
 import pytest
 import torch
+import yaml
 from scipy.io import savemat  # type: ignore[import-untyped]
 
 from joff.experiments import (
@@ -1591,7 +1593,7 @@ def test_changed_checkpoint_is_rejected_before_claim_or_fault_access(
 
 
 def test_three_paper_entry_configs_are_strict_and_expose_frozen_readiness_gates() -> None:
-    """三条入口都可严格解析；当前 frozen 配置因许可/产物未就绪而只读报告阻塞。"""
+    """三条入口都可严格解析；许可证核验后 frozen 仍因正式产物未就绪而阻塞。"""
 
     smoke_path = _ROOT / "configs" / "paper" / "smoke.yaml"
     development_path = _ROOT / "configs" / "paper" / "cstr_development.yaml"
@@ -1623,8 +1625,12 @@ def test_three_paper_entry_configs_are_strict_and_expose_frozen_readiness_gates(
     }
 
     readiness_errors = frozen.config.frozen_readiness_errors(repo_root=_ROOT)
-    assert any("license" in error and "to_verify" in error for error in readiness_errors)
-    assert any("normal_artifacts" in error for error in readiness_errors)
+    assert development.config.dataset.license_status == "verified"
+    assert frozen.config.dataset.license_status == "verified"
+    assert not any("license" in error for error in readiness_errors)
+    # 干净克隆会在这里报告缺失的 ignored 正常产物；本地完成 development 后元组可为空。
+    # 正式 runtime 完整性由后续 checkpoint driver 在 manifest/claim 之前独立复验。
+    assert all("normal_artifacts" in error for error in readiness_errors)
 
     invalid = smoke.config.model_dump(mode="json")
     invalid["unknown_paper_key"] = True
@@ -1642,6 +1648,36 @@ def test_three_paper_entry_configs_are_strict_and_expose_frozen_readiness_gates(
     )
     with pytest.raises(ValueError, match="maximum_reference_age"):
         FrozenEvaluationEntryConfig.model_validate(invalid_reference_age)
+
+
+def test_closed_loop_cstr_license_evidence_is_bound_to_the_formal_configs() -> None:
+    """正式配置只能在卡片保存权威 BSD 证据和本地模型身份后声明许可已核验。"""
+
+    card_path = (
+        _ROOT
+        / "datasets"
+        / "cards"
+        / "oa"
+        / "cstr_closed_loop_fd"
+        / "dataset_card.yaml"
+    )
+    card = yaml.safe_load(card_path.read_text(encoding="utf-8"))
+    source = card["source"]
+
+    assert card["access"]["license"] == "BSD-3-Clause"
+    assert source["license_status"] == "verified"
+    assert source["version"] == "1.1.0.1"
+    assert source["license_url"] == (
+        "https://www.mathworks.com/matlabcentral/mlc-downloads/downloads/"
+        "89e57c22-64a7-4cba-8aa3-da4279b09619/"
+        "cb37e495-cbbf-47ab-90eb-605e5328de59/license/license.txt"
+    )
+    assert source["license_text_sha256"] == (
+        "8c89de130c1e25815100e4dd5dcc3a9b602a74ee9b94f3eebf3513c53945b39e"
+    )
+    assert source["local_model_sha256"] == (
+        "4555be2fa4c93ab43d2f24ab26e2bf6511ec25d701b231fc7d57f6657b523a81"
+    )
 
 
 def test_normal_development_entry_generates_all_artifacts_without_fault_access(
