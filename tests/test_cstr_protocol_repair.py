@@ -14,8 +14,9 @@
     依赖 SciPy MAT 读取能力和仓库内 OA 数据；测试只读文件，不访问网络、不修改数据，
     也不使用真实故障表现选择任何参数。
 重要约束：
-    真实 fault episode 仅用于 shape、onset、标签和追溯回归；许可仍为 `to_verify`，
-    因此这些测试通过也不能证明数据可以重新分发或结果可以投稿。
+    真实 fault episode 仅用于 shape、onset、标签和追溯回归；上游模型的 BSD-3-Clause
+    许可证不能替代本地 MAT 生成链证明，数据许可必须保持 ``to_verify``。测试通过仍不能
+    把结构回归写成故障性能或论文结果。
 """
 
 from __future__ import annotations
@@ -49,6 +50,16 @@ def test_closed_loop_cstr_schema_exposes_physical_roles_and_explicit_task_inputs
     assert task.targets == ("fault_id",)
     assert task.fault_switch == 200
     assert DATASET_REGISTRY.resolve("CSTR/fd_close") is adapter
+    summary = adapter.summary()
+    assert summary["access"]["license"] == "to_verify"
+    assert summary["access"]["license_status"] == "to_verify"
+    assert summary["access"]["license_reason"] == "local_mat_generation_chain_not_documented"
+    assert summary["access"]["upstream_model_license"] == "BSD-3-Clause"
+    assert summary["access"]["upstream_model_license_status"] == "verified"
+    assert summary["access"]["upstream_model_source_version"] == "1.1.0.1"
+    assert summary["access"]["upstream_model_local_sha256"] == (
+        "4555be2fa4c93ab43d2f24ab26e2bf6511ec25d701b231fc7d57f6657b523a81"
+    )
 
 
 def test_closed_loop_cstr_read_applies_onset_labels_and_serializable_provenance() -> None:
@@ -107,6 +118,12 @@ def test_closed_loop_cstr_read_applies_onset_labels_and_serializable_provenance(
         "59d1b8ad014c853215cde873857365a95ed7e38538b2f4f355b423b49fdf7a92"
     )
     assert summary["access"]["license"] == "to_verify"
+    assert summary["access"]["license_status"] == "to_verify"
+    assert summary["access"]["upstream_model_license"] == "BSD-3-Clause"
+    assert summary["access"]["upstream_model_license_status"] == "verified"
+    assert summary["access"]["upstream_model_local_sha256"] == (
+        "4555be2fa4c93ab43d2f24ab26e2bf6511ec25d701b231fc7d57f6657b523a81"
+    )
 
 
 def test_closed_loop_cstr_datamodule_keeps_model_inputs_and_sequence_episodes_separate() -> None:
@@ -175,11 +192,21 @@ def test_closed_loop_cstr_dataset_card_path_routes_to_declared_protocol_adapter(
 
     adapter = DATASET_REGISTRY.resolve(CSTR_CARD_PATH)
     dataset = adapter.read(task="fault_diagnosis")
+    card_summary = adapter.summary()
 
     assert adapter.schema().role_columns("control_input") == ("Ci", "Ti", "Tci")
+    assert card_summary["access"]["license"] == "to_verify"
+    assert card_summary["access"]["license_status"] == "to_verify"
+    assert card_summary["access"]["upstream_model_license"] == "BSD-3-Clause"
+    assert card_summary["access"]["upstream_model_license_status"] == "verified"
+    assert card_summary["access"]["upstream_model_local_sha256"] == (
+        "4555be2fa4c93ab43d2f24ab26e2bf6511ec25d701b231fc7d57f6657b523a81"
+    )
     assert dataset.split_rows() == {"train": 16814, "test": 8 * 1201}
     assert dataset.metadata["source_type"] == "real_dataset"
     assert Path(dataset.metadata["root"]).resolve() == (CSTR_RAW_ROOT / "fd_close").resolve()
+    assert dataset.source_summary()["access"]["license"] == "to_verify"
+    assert dataset.source_summary()["access"]["license_status"] == "to_verify"
     assert dataset.splits["test"][0].frame.loc[199, "fault_id"] == 0
     assert dataset.splits["test"][0].frame.loc[200, "fault_id"] == 1
 

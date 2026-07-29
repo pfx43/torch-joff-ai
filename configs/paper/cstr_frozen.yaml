@@ -1,6 +1,6 @@
 mode: frozen
 protocol_version: cstr-frozen-v1
-evaluation_id: cstr-frozen-pending-certified-runtime
+evaluation_id: cstr-frozen-pending-mat-license-and-certified-runtime
 artifact_root: runs
 run_name: cstr_frozen
 claim_registry: runs/.frozen-evaluation-claims
@@ -18,7 +18,7 @@ dataset:
   root: datasets/raw/oa/CSTR/fd_close
   normal_file: train/model1[train].mat
   fault_file: test/model1[test].mat
-  license_status: verified
+  license_status: to_verify
   feature_count: 7
   normal_rows: 16814
   fault_episode_count: 8

@@ -86,13 +86,22 @@ pwsh docs/旧文档/编译PDF.ps1
 随后才允许进入独立的 `冻结故障测试`。这一口径与 `paper/main.tex` 的 Learning and
 Calibration Protocol 一致，不能把故障测试混写成正常数据第五段。
 
-检测校准和归因校准 episode 不得复用。现有 `DataModule` 尚未提供完整五段抽象；应在正式数据层扩展中实现，不能在示例脚本里临时切数组，也不能继续按旧 `FourWayNormalSplitter` 规格开发。
+检测校准和归因校准 episode 不得复用。通用 `DataModule` 不拥有论文五段业务状态；正式
+五段抽象已经由 `data.paper_protocol` 的 `FiveStageNormalSplitter` / `PaperDataBundle`
+实现，不能在示例脚本里临时切数组，也不能退回旧 `FourWayNormalSplitter` 规格。
 
-闭环 CSTR preset `cstr_closed_loop_fd` 有三个已知前置问题：
+闭环 CSTR preset `cstr_closed_loop_fd` 的物理协议问题已经闭环，但数据许可仍未闭环：
 
-- 适配器当前把测试段整段标为故障，真实 onset 为 200，需逐行标签；
-- `u=(Ci,Ti,Tci)`、`y=(C,T,Tc,Qc)` 的角色尚未完整进入 schema；
-- 数据许可仍为 `to_verify`。
+- 测试 episode 按真实 onset=200 逐行标注；
+- `u=(Ci,Ti,Tci)`、`y=(C,T,Tc,Qc)` 已进入物理 schema；
+- MathWorks File Exchange #66189 版本 1.1.0.1 的上游模型 BSD-3-Clause URL、许可证文本
+  hash、本地模型 hash 和完整第三方 notice 已进入数据卡和公共 adapter 来源摘要；
+- 上述证据只覆盖上游模型，仓库内 normal/fault MAT 的生成链和再分发许可仍为
+  `to_verify`，不得把模型许可扩张为数据许可。
+
+当前 formal 同时受两类门禁阻塞：本地 MAT 生成/许可链尚未核实，以及仓库没有真实
+interval/verified-quadrature 与 full nonlinear 认证 provider。任一条件未满足时，
+development-only runtime 都不得创建正式 manifest/claim 或读取冻结故障值。
 
 老师稿的两处 critical 修正已经进入当前英文方案但仍需导师最终确认：推论 1 使用可观测超额得分校准；隔离层使用堆叠受保护多步残差与加权响应矩阵配对。最新边界以 `MANUSCRIPT_CONTEXT.md` 和 `paper/main.tex` 为准。
 

@@ -18,7 +18,7 @@ dataset:
   root: datasets/raw/oa/CSTR/fd_close
   normal_file: train/model1[train].mat
   fault_file: test/model1[test].mat
-  license_status: verified
+  license_status: to_verify
   feature_count: 7
   normal_rows: 16814
   fault_episode_count: 8

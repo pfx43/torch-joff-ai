@@ -15,7 +15,8 @@
     才读取文件，模块导入本身不访问磁盘、不创建目录、不改变随机状态。
 重要约束：
     schema 决定列语义，答案列和 episode 元数据不得进入模型输入；真实故障数据只用于
-    冻结后的评价或协议回归，不能用于模型、阈值和结构选择；许可状态必须原样进入来源摘要。
+    冻结后的评价或协议回归，不能用于模型、阈值和结构选择；每个数据变体的许可状态和
+    权威证据必须原样进入名称解析、卡片解析与真实读取的来源摘要。
 """
 
 from __future__ import annotations
@@ -36,6 +37,34 @@ from .builtin import SyntheticCSTRFaultAdapter, SyntheticProcessAdapter
 
 
 _OA_ACCESS = {"tag": "oa", "disclosure": "open_access", "license": "to_verify"}
+_CSTR_CLOSED_LOOP_ACCESS = {
+    "tag": "oa",
+    "disclosure": "open_access",
+    "license": "to_verify",
+    "license_status": "to_verify",
+    "license_reason": "local_mat_generation_chain_not_documented",
+    "upstream_model_license": "BSD-3-Clause",
+    "upstream_model_license_status": "verified",
+    "upstream_model_source_version": "1.1.0.1",
+    "upstream_model_source_url": (
+        "https://www.mathworks.com/matlabcentral/fileexchange/"
+        "66189-feedback-controlled-cstr-process-for-fault-simulation"
+    ),
+    "upstream_model_license_url": (
+        "https://www.mathworks.com/matlabcentral/mlc-downloads/downloads/"
+        "89e57c22-64a7-4cba-8aa3-da4279b09619/"
+        "cb37e495-cbbf-47ab-90eb-605e5328de59/license/license.txt"
+    ),
+    "upstream_model_license_text_sha256": (
+        "8c89de130c1e25815100e4dd5dcc3a9b602a74ee9b94f3eebf3513c53945b39e"
+    ),
+    "upstream_model_local_sha256": (
+        "4555be2fa4c93ab43d2f24ab26e2bf6511ec25d701b231fc7d57f6657b523a81"
+    ),
+    "upstream_model_notice_file": (
+        "datasets/cards/oa/cstr_closed_loop_fd/THIRD_PARTY_NOTICE.txt"
+    ),
+}
 _PRIVATE_ACCESS = {
     "tag": "private",
     "disclosure": "non_public",
@@ -510,6 +539,27 @@ class CSTRFaultAdapter:
         )
         object.__setattr__(self, "_fallback", fallback)
 
+    def _access_metadata(self) -> dict[str, str]:
+        """返回与当前 CSTR 变体一致的独立访问元数据副本。
+
+        返回：
+            闭环七变量变体把本地 MAT 的 ``to_verify`` 状态与已核验的上游模型
+            BSD-3-Clause 证据分开返回；其他历史 CSTR 变体继续只返回 ``to_verify``，
+            不能借用闭环模型的证据。
+        异常：
+            无。
+        副作用：
+            只复制模块级字典，不访问网络或原始数据；调用方修改结果不会污染后续摘要。
+        """
+
+        access = (
+            _CSTR_CLOSED_LOOP_ACCESS
+            if self.name == "cstr_closed_loop_fd"
+            and self.protocol == _CSTR_CLOSED_LOOP_PROTOCOL
+            else _OA_ACCESS
+        )
+        return dict(access)
+
     def read(self, *, root: str | Path | None = None, task: str | None = None) -> CanonicalDataset:
         """读取官方 train/test MAT，并按可选物理协议生成标签与来源摘要。
 
@@ -566,7 +616,7 @@ class CSTRFaultAdapter:
             root=root_path,
             splits={"train": train_segments, "test": test_segments},
             schema=self.schema(),
-            access=_OA_ACCESS,
+            access=self._access_metadata(),
             metadata=protocol_metadata,
         )
 
@@ -630,10 +680,17 @@ class CSTRFaultAdapter:
         异常：
             任务名不受支持时抛出 ``ValueError``。
         副作用：
-            无。不检查文件存在性、不访问网络，也不把 ``to_verify`` 许可改写为已确认。
+            无。不检查文件存在性、不访问网络；闭环变体只重放已核验的上游模型
+            BSD-3-Clause 证据，同时对本地 MAT 保持 ``to_verify``。其他 CSTR 变体
+            继续只保留 ``to_verify``。
         """
 
-        return _summary(self, self.default_task(task), access=_OA_ACCESS, files={"root": f"CSTR/{self.subdir}"})
+        return _summary(
+            self,
+            self.default_task(task),
+            access=self._access_metadata(),
+            files={"root": f"CSTR/{self.subdir}"},
+        )
 
 
 class TTSFaultDiagnosisAdapter:
