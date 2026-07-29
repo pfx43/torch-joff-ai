@@ -15,7 +15,8 @@
     不修改主仓库，不读取仓库内真实 TTS/TE 故障数值，也不生成或声称任何论文性能结果。
 重要约束：
     合成故障矩阵的后六列模拟随数据发布的故障输出通道，它们是答案信息，必须在适配器
-    边界被排除；次级数据集不得反向改变已经冻结的 CSTR 模型、阈值或结构选择。
+    边界被排除；次级数据集不得反向改变已经冻结的 CSTR 模型、阈值或结构选择。主协议锁
+    必须跟随已提交的 CSTR 许可证据和 frozen 配置身份更新，不能绑定未提交工作树。
 """
 
 from __future__ import annotations
@@ -290,7 +291,7 @@ def test_tts_development_config_is_strict_and_binds_the_primary_cstr_protocol() 
         resolve_frozen_evaluation_config(
             ROOT / "configs" / "paper" / "cstr_frozen.yaml"
         ).config_hash
-        == "a14200e5c512e3f4"
+        == "b29bc1aae5a3751a"
     )
     resolved = resolve_frozen_evaluation_config(TTS_DEVELOPMENT_CONFIG)
     config = resolved.config
@@ -303,6 +304,14 @@ def test_tts_development_config_is_strict_and_binds_the_primary_cstr_protocol() 
     assert config.development.feature_layout.measurement_indices == (2, 3, 4, 5, 6)
     assert config.primary_protocol_lock is not None
     assert config.primary_protocol_lock.dataset_name == "cstr_closed_loop_fd"
+    assert (
+        config.primary_protocol_lock.frozen_config_commit
+        == "06f5abd0985e04615f78f1ebe3906d1dfe8c64ec"
+    )
+    assert (
+        config.primary_protocol_lock.frozen_config_sha256
+        == "5b5e4c48cfe9831124aa42d6a3e7eea1986ca37668f00f77f7efc12ff709d3ae"
+    )
     assert (
         config.primary_protocol_lock.selection_status
         == "configuration_frozen_fault_evaluation_blocked"
@@ -318,6 +327,7 @@ def test_tts_development_config_is_strict_and_binds_the_primary_cstr_protocol() 
     assert config.primary_protocol_lock.fault_results_accessed is False
 
     raw = yaml.safe_load(TTS_DEVELOPMENT_CONFIG.read_text(encoding="utf-8"))
+    assert "implementation_commit" not in raw["primary_protocol_lock"]
     without_lock = copy.deepcopy(raw)
     without_lock.pop("primary_protocol_lock")
     with pytest.raises(ValidationError, match="primary_protocol_lock"):
@@ -376,8 +386,8 @@ def test_tts_development_validates_primary_lock_then_enforces_the_p11_stage_gate
         )
 
     nonexistent_commit = copy.deepcopy(raw)
-    nonexistent_commit["primary_protocol_lock"]["implementation_commit"] = "0" * 40
-    with pytest.raises(FrozenProtocolIntegrityError, match="implementation commit.*Git"):
+    nonexistent_commit["primary_protocol_lock"]["frozen_config_commit"] = "0" * 40
+    with pytest.raises(FrozenProtocolIntegrityError, match="frozen-config commit.*Git"):
         run_paper_normal_development(
             resolve_frozen_evaluation_config(nonexistent_commit),
             repo_root=ROOT,
@@ -413,7 +423,7 @@ def test_tts_development_validates_primary_lock_then_enforces_the_p11_stage_gate
     )
 
     uncommitted_config = copy.deepcopy(raw)
-    uncommitted_config["primary_protocol_lock"]["implementation_commit"] = (
+    uncommitted_config["primary_protocol_lock"]["frozen_config_commit"] = (
         primary_commit
     )
     uncommitted_config["primary_protocol_lock"]["frozen_config"] = (

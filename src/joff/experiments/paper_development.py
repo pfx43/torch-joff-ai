@@ -604,9 +604,9 @@ def _validate_primary_protocol_lock(
         raise FrozenProtocolIntegrityError(
             "TTS primary CSTR frozen config identity differs from the declared lock."
         )
-    _validate_primary_implementation_commit(
+    _validate_primary_frozen_config_commit(
         root=root,
-        implementation_commit=lock.implementation_commit,
+        frozen_config_commit=lock.frozen_config_commit,
         protected_frozen_config=frozen_config,
         protected_frozen_config_sha256=lock.frozen_config_sha256,
     )
@@ -651,7 +651,7 @@ def _validate_primary_protocol_lock(
     if (
         manifest.protocol_version != lock.protocol_version
         or manifest.evaluation_id != lock.evaluation_id
-        or manifest.git_commit != lock.implementation_commit
+        or manifest.git_commit != lock.frozen_config_commit
         or manifest.manifest_hash != lock.manifest_hash
         or not isinstance(resolved_dataset, Mapping)
         or resolved_dataset.get("name") != lock.dataset_name
@@ -706,18 +706,19 @@ def _validate_primary_protocol_lock(
         )
 
 
-def _validate_primary_implementation_commit(
+def _validate_primary_frozen_config_commit(
     *,
     root: Path,
-    implementation_commit: str,
+    frozen_config_commit: str,
     protected_frozen_config: Path,
     protected_frozen_config_sha256: str,
 ) -> None:
-    """确认主协议提交及其受保护 frozen 配置是真实、可达且内容一致。
+    """确认主 frozen 配置提交及其受保护 YAML 真实、可达且内容一致。
 
     参数：
         root: 已规范化的仓库根。
-        implementation_commit: P10 锁声明的完整 40 位提交。
+        frozen_config_commit: 保存当前 CSTR frozen 配置 blob 的完整 40 位提交；完成态还会
+            与 formal manifest 的执行提交交叉核对。
         protected_frozen_config/protected_frozen_config_sha256: 当前已核验的主 YAML 路径和
             工作树文件 hash；提交中的同一路径必须产生完全相同的 blob。
     返回：
@@ -738,7 +739,7 @@ def _validate_primary_implementation_commit(
                 str(root),
                 "cat-file",
                 "-e",
-                f"{implementation_commit}^{{commit}}",
+                f"{frozen_config_commit}^{{commit}}",
             ],
         ),
         (
@@ -749,7 +750,7 @@ def _validate_primary_implementation_commit(
                 str(root),
                 "merge-base",
                 "--is-ancestor",
-                implementation_commit,
+                frozen_config_commit,
                 "HEAD",
             ],
         ),
@@ -765,11 +766,11 @@ def _validate_primary_implementation_commit(
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise FrozenProtocolIntegrityError(
-                "Primary implementation commit cannot be verified by Git."
+                "Primary frozen-config commit cannot be verified by Git."
             ) from exc
         if completed.returncode != 0:
             raise FrozenProtocolIntegrityError(
-                "Primary implementation commit failed Git "
+                "Primary frozen-config commit failed Git "
                 f"{check_name} verification."
             )
     try:
@@ -785,7 +786,7 @@ def _validate_primary_implementation_commit(
                 "-C",
                 str(root),
                 "show",
-                f"{implementation_commit}:{protected_relative}",
+                f"{frozen_config_commit}:{protected_relative}",
             ],
             capture_output=True,
             check=False,

@@ -29,9 +29,9 @@ dataset:
 primary_protocol_lock:
   dataset_name: cstr_closed_loop_fd
   protocol_version: cstr-frozen-v1
-  implementation_commit: fd73569c5b4db81466e5702056f12297b06c0786
+  frozen_config_commit: 06f5abd0985e04615f78f1ebe3906d1dfe8c64ec
   frozen_config: configs/paper/cstr_frozen.yaml
-  frozen_config_sha256: bb1a84d083bfbfa0c118b4a2d1c921a3b052a0521c6808a600472c6d068a7afb
+  frozen_config_sha256: 5b5e4c48cfe9831124aa42d6a3e7eea1986ca37668f00f77f7efc12ff709d3ae
   selection_status: configuration_frozen_fault_evaluation_blocked
   evaluation_id: null
   manifest_path: null

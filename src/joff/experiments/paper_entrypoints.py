@@ -6,8 +6,8 @@
 主要职责：
     定义嵌套 Pydantic 严格配置、保留 resolved config/provenance/16 位 hash，并以只读检查
     报告 frozen 模式的许可、原始文件 hash 和 P2--P9 正常产物是否就绪；P11 次级开发
-    额外声明 CSTR 主提交、配置和正式 manifest/bundle 身份。本文件不训练模型、不加载
-    MAT 数值、不创建 manifest。
+    额外声明保存 CSTR frozen 配置 blob 的提交、配置和正式 manifest/bundle 身份。本文件
+    不训练模型、不加载 MAT 数值、不创建 manifest。
 关键输入与输出：
     输入为 ``configs/paper/*.yaml``、等价映射或已经校验的配置；输出为
     ``ResolvedFrozenEvaluationConfig`` 和稳定的 readiness error 列表。
@@ -20,7 +20,7 @@
     ``to_verify`` 必须作为阻塞事实保留，不能被布尔转换误当成授权。readiness 只报告状态，
     绝不自动修复路径、改许可、创建 claim 或回退为 smoke runtime。TTS 只允许
     development，其物理索引从数据层唯一协议对象派生；阻塞态不得执行，完成态也不得把
-    次级结果回写由 P10 提交、frozen 配置和正式 manifest 共同固定的 CSTR 选择。
+    次级结果回写由 frozen-config 提交、配置 blob 和正式 manifest 共同固定的 CSTR 选择。
 """
 
 from __future__ import annotations
@@ -155,7 +155,8 @@ class PaperPrimaryProtocolLockConfig(StrictConfig):
 
     参数：
         dataset_name/protocol_version: 主数据集与 P10 frozen 协议的稳定名称。
-        implementation_commit: 实现 P10 冻结工作流的完整 Git 提交身份。
+        frozen_config_commit: 保存当前受保护 CSTR frozen 配置 blob 的完整 Git 提交身份；
+            完成态还必须与 formal manifest 的执行提交一致。
         frozen_config/frozen_config_sha256: 只读 CSTR frozen YAML 及其内容 SHA-256。
         selection_status: 区分“只冻结软件配置、正式评价仍阻塞”和“正式冻结评价已完成”。
         evaluation_id/manifest_path/manifest_sha256/manifest_hash/normal_artifact_bundle_hash:
@@ -175,7 +176,7 @@ class PaperPrimaryProtocolLockConfig(StrictConfig):
 
     dataset_name: Literal["cstr_closed_loop_fd"]
     protocol_version: str
-    implementation_commit: str
+    frozen_config_commit: str
     frozen_config: Path
     frozen_config_sha256: str
     selection_status: Literal[
@@ -204,13 +205,15 @@ class PaperPrimaryProtocolLockConfig(StrictConfig):
             raise ValueError("Primary protocol identifiers must use safe identifier syntax.")
         return normalized
 
-    @field_validator("implementation_commit")
+    @field_validator("frozen_config_commit")
     @classmethod
     def _validate_commit(cls, value: str) -> str:
         """要求完整小写 Git object id，避免短 hash 歧义。"""
 
         if not _COMMIT_RE.fullmatch(value):
-            raise ValueError("Primary implementation_commit must be 40 lowercase hex characters.")
+            raise ValueError(
+                "Primary frozen_config_commit must be 40 lowercase hex characters."
+            )
         return value
 
     @field_validator(
