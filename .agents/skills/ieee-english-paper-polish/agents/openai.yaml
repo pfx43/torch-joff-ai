@@ -1,4 +1,0 @@
-interface:
-  display_name: "IEEE English Paper Polish"
-  short_description: "IEEE-style English manuscript writing and revision"
-  default_prompt: "Use $ieee-english-paper-polish to revise this English manuscript with consistent notation and IEEE style."

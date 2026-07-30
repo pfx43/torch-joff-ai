@@ -122,7 +122,8 @@ development-only runtime 都不得创建正式 manifest/claim 或读取冻结故
 ## 6. 论文写作与交付
 
 - 当前正式稿为英文 `paper/main.tex`，参考文献为 `paper/refs.bib`，体例为 IEEEtran 双栏、IEEE TFS 风格。
-- 处理英文稿前必须按 `ieee-english-paper-polish` 技能要求整读 `MANUSCRIPT_CONTEXT.md`。
+- 处理英文稿前必须按 `idea-review-and-paper-writing` 技能的 Stage 2 要求整读
+  `MANUSCRIPT_CONTEXT.md`。
 - 实验节允许完整协议和明确占位符，不允许编造数值、硬件条件、统计显著性或已完成验证。
 - 修改 LaTeX 后必须本地编译；交付前检查错误、未定义引用、超宽行并逐页目检 PDF。若环境阻塞，应报告阻塞和未完成的检查。
 - 编辑 `.tex` 应使用能保真反斜杠的文件编辑工具，避免 shell heredoc；中文材料使用全角中文引号，避免 ASCII 直引号造成排版错误。
@@ -193,7 +194,7 @@ Zotero 服务配置在 `.mcp.json`（Claude Code）和 `~/.codex/config.toml`（
 
 论文相关项目技能：
 
-- `ieee-english-paper-polish`：IEEE 英文稿写作与润色；
+- `idea-review-and-paper-writing`：研究想法审查、IEEE 英文稿写作、润色、插图与交付；
 - `paper-triage`、`expand-references`、`trace-citations`：基于 Semantic Scholar 的文献检索与引用网络追踪。
 
 ## 9. 文件说明与代码注释规范（强制）

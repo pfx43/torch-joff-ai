@@ -1,6 +1,6 @@
 # MANUSCRIPT_CONTEXT
 
-英文论文（IEEE TFS 目标）的项目级写作上下文。`ieee-english-paper-polish` skill 的每次稿件任务开始前必须整读本文件；只有项目级决策变化时才更新对应条目。创建：2026-07-26（P0）；2026-07-26 P1–P4 版本曾完成本地编译（IEEEtran 双栏 11 页）。2026-07-27 八轮理论深化已大幅改写 `paper/main.tex`，旧 PDF 不再代表当前源文件；当前 MiKTeX 因 fresh-installation setup 未完成而阻断重新编译和 PDF 目检。实验节仍为协议 + 数值占位（见第 3 节纪律）。
+英文论文（IEEE TFS 目标）的项目级写作上下文。`idea-review-and-paper-writing` skill 的每次 Stage 2 稿件任务开始前必须整读本文件；只有项目级决策变化时才更新对应条目。创建：2026-07-26（P0）；2026-07-26 P1–P4 版本曾完成本地编译（IEEEtran 双栏 11 页）。2026-07-27 八轮理论深化已大幅改写 `paper/main.tex`，旧 PDF 不再代表当前源文件；当前 MiKTeX 因 fresh-installation setup 未完成而阻断重新编译和 PDF 目检。实验节仍为协议 + 数值占位（见第 3 节纪律）。
 
 ## 1. 论文核心思想
 

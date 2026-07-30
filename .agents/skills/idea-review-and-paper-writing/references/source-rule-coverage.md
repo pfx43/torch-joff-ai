@@ -2,6 +2,10 @@
 
 This file records how the recoverable first version of `ieee-english-paper-polish` and the supplied web-conversation inventory are represented in the current skill. It is a provenance and coverage index, not a second editable copy of the operational rules.
 
+The standalone legacy skill was removed after this migration was verified. Its
+name remains below only where needed to identify the historical source; it is
+not an active skill entry or fallback workflow.
+
 ## Contents
 
 - Recoverable sources
