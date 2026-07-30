@@ -1,0 +1,228 @@
+[
+  {
+    "id": "stage1-prior-art",
+    "stage": 1,
+    "prompt": "我们准备把 Koopman、T-S 模糊模型和 attention 组合用于未知故障检测。请判断它能否作为论文创新点。",
+    "rubric": [
+      "Does not infer novelty from the component combination alone.",
+      "Requires a current closest-primary-literature comparison.",
+      "Separates unresolved novelty from confirmed novelty.",
+      "Identifies the technical novelty delta that would be needed."
+    ],
+    "forbidden": [
+      "Claims this is the first method without evidence.",
+      "Treats exact architecture uniqueness as sufficient novelty."
+    ]
+  },
+  {
+    "id": "stage1-assumptions",
+    "stage": 1,
+    "prompt": "我们只用正常数据训练，但希望在线检测完全未知方向、未知幅值和未知时刻的故障。请检查这个 idea 的假设、前提和实际落地性。",
+    "rubric": [
+      "Audits measurable, training-only, estimated, and unavailable quantities.",
+      "Checks training leakage, numerical realization, and online computation.",
+      "Separates a fully unknown route from a structured fault-basis route.",
+      "Keeps unsupported routes exploratory."
+    ],
+    "forbidden": [
+      "Uses fault labels or true fault directions without adding an assumption.",
+      "Presents an unavailable counterfactual trajectory as online known."
+    ]
+  },
+  {
+    "id": "stage1-model-specific-analysis",
+    "stage": 1,
+    "prompt": "我们的模型结构是专门设计的，针对这个结构推导出的稳定性和可检测性结论能不能作为创新？不一定要叫定理。",
+    "rubric": [
+      "Accepts a model-specific analytical contribution conditionally.",
+      "Requires a nontrivial consequence that uses the structure essentially.",
+      "Requires assumptions, a complete derivation, and a computable or testable result.",
+      "Suggests an appropriately scoped claim form without hiding an unsupported guarantee."
+    ],
+    "forbidden": [
+      "Rejects all model-specific theory as non-innovative.",
+      "Accepts exact model uniqueness as sufficient by itself."
+    ]
+  },
+  {
+    "id": "stage2-editable-vector-figure",
+    "stage": 2,
+    "prompt": "请为论文画一个可拆解的模型结构图，所有模块、箭头和文字以后都要能单独修改，并交付 SVG 或 PPT。",
+    "rubric": [
+      "Selects an editable vector workflow.",
+      "Keeps text, shapes, connectors, groups, and semantic layers editable.",
+      "Preserves a source file and validates the export.",
+      "Does not flatten the whole figure into a bitmap."
+    ],
+    "forbidden": [
+      "Returns only a raster preview.",
+      "Invents scientific relationships not present in the model."
+    ]
+  },
+  {
+    "id": "stage2-ai-draft-palette-reconstruction",
+    "stage": 2,
+    "prompt": "请根据论文标题、摘要和方法部分先生成一个科研图草案，再做成可编辑的 PPT。整体要冷色灰色调，但关键创新要有一个鲜明亮色。",
+    "rubric": [
+      "Uses the title and abstract only to identify a candidate figure family, then derives topology from the method or explicit specification.",
+      "Treats any AI-generated image as a non-authoritative concept draft and audits every block, label, and arrow.",
+      "Reconstructs the accepted design with native editable PowerPoint shapes, text, connectors, and groups.",
+      "Selects one recorded palette strip, keeps cool or neutral tones dominant, and assigns one sparse bright accent a stable semantic role.",
+      "Preserves prompt, figure-source, palette, and export provenance."
+    ],
+    "forbidden": [
+      "Delivers the generated bitmap or an embedded screenshot as the editable source.",
+      "Mixes unrelated palette strips for decoration.",
+      "Copies an unlicensed third-party figure's distinctive layout merely to maximize visual similarity."
+    ]
+  },
+  {
+    "id": "stage2-official-latex-template",
+    "stage": 2,
+    "prompt": "请用《控制理论与应用》的官方 LaTeX 模板开始写论文。我的环境提示缺少 picins.sty，你可以顺便把模板头文件改到能编译。",
+    "rubric": [
+      "Selects the registered official journal archive and preserves its GBK bytes.",
+      "Initializes a working copy while leaving the cached original untouched.",
+      "Refuses to remove or replace publisher packages merely to fix the local environment.",
+      "Reports picins.sty as a non-bundled environment dependency and audits template integrity.",
+      "Uses only the toolchain version stated in the verified publisher instructions and identifies it as legacy guidance."
+    ],
+    "forbidden": [
+      "Edits kzllyyhead.tex or kzllyy.cls to bypass the missing dependency.",
+      "Redistributes picins.sty or claims the unchanged official template compiled successfully.",
+      "Invents or silently substitutes a CTeX or TeX distribution version."
+    ]
+  },
+  {
+    "id": "stage2-chinese-default-template",
+    "stage": 2,
+    "prompt": "请开始写一篇中文控制领域论文，我没有指定投稿期刊，也没有给模板。",
+    "rubric": [
+      "Selects the registered 控制理论与应用 template without asking for a different default.",
+      "Proceeds with the Chinese default without requesting redundant template confirmation.",
+      "Preserves the template's GBK encoding and two-column body structure.",
+      "Changes manuscript content only and keeps template files and layout controls protected.",
+      "Switches templates only if the user later explicitly selects another journal."
+    ],
+    "forbidden": [
+      "Uses a generic article class or invents a new Chinese layout.",
+      "Pauses to ask the user to confirm the already-defined Chinese default.",
+      "Chooses another Chinese journal based only on the paper topic.",
+      "Treats the one-column front-matter context as evidence that the delivered body is single-column."
+    ]
+  },
+  {
+    "id": "stage2-notation-registry-loop",
+    "stage": 2,
+    "prompt": "请继续写方法部分。现有符号表中 f 表示故障，但前文又用 F 表示状态转移映射；H 同时表示历史窗口和 Hilbert 空间。可以先写完再统一吗？",
+    "rubric": [
+      "Stops substantive drafting until the notation registry is reconciled.",
+      "Searches exact glyphs and base-character variants across the complete manuscript.",
+      "Keeps one semantic family per base character and one typography per object type.",
+      "Renames conflicting objects, updates the ledger, and reruns the subsection audit before continuing."
+    ],
+    "forbidden": [
+      "Defers symbol reconciliation until final proofreading.",
+      "Treats calligraphic, bold, or blackboard-bold variants as sufficient separation for unrelated meanings."
+    ]
+  },
+  {
+    "id": "stage2-meaningful-symbol-selection-loop",
+    "stage": 2,
+    "prompt": "我准备在观测器里用 q 表示增益，又用 G 表示故障，虽然前文的 g 已经表示非线性映射。符号表只列含义和维度即可吗？先把公式写完。",
+    "rubric": [
+      "Blocks further equation drafting until the notation ledger is reconciled.",
+      "Checks target-journal and field conventions first, then mathematical convention, then a meaningful English initial or semantic mnemonic.",
+      "Records the naming basis and either Introduction Notation or the exact first-definition location in the Markdown ledger.",
+      "Rejects a misleading initial or any exact-symbol, object-type, or base-family conflict and propagates the rename through equations, algorithms, captions, appendices, and figures.",
+      "Reruns the subsection symbol-consistency audit after the ledger and manuscript are synchronized."
+    ],
+    "forbidden": [
+      "Chooses any unused letter without recording why it is appropriate.",
+      "Forces an English initial when it conflicts with an accepted domain convention or an existing semantic family.",
+      "Uses the same glyph for scalar and vector objects or postpones reconciliation until final proofreading."
+    ]
+  },
+  {
+    "id": "stage2-problem-contribution-loop",
+    "stage": 2,
+    "prompt": "论文第二节的 Monitoring Objectives 有五条，Introduction 有三条贡献，摘要又强调四个模块。请直接润色摘要并继续写后文。",
+    "rubric": [
+      "Blocks downstream prose polishing until the task counts are reconciled.",
+      "Renames the subsection Problem Formulation or Problem Description.",
+      "Uses one numbered item per central subproblem and normally retains two or three.",
+      "Aligns the problem items, contributions, body results, and abstract in count and order.",
+      "Updates the section-role matrix and reruns the alignment gate."
+    ],
+    "forbidden": [
+      "Keeps the five-item checklist as the mathematical problem statement.",
+      "Polishes the abstract without reconciling it with the problem and contribution structure."
+    ]
+  },
+  {
+    "id": "stage2-seven-priority-writing-loop",
+    "stage": 2,
+    "prompt": "方法部分已经写完三个小节，语法基本正确，但后来又单独加了一章网络结构。符号、公式和训练测试流程准备最后再统一。请继续写实验。",
+    "rubric": [
+      "Blocks the next section until the current chapter arrangement is rechecked against the skill sequence and every deviation is justified.",
+      "Audits each revised subsection for sentence-to-sentence logic and an explicit problem–method–mechanism–result–evidence causal chain.",
+      "Reconciles every symbol through the notation ledger before further drafting.",
+      "Checks formula definitions, assumptions, indices, dimensions, algebraic transitions, boundary cases, and conclusion scope.",
+      "Completes the model information boundary, mappings, parameters, update order, and component interfaces.",
+      "Separates training, validation, testing, and online deployment, including split-fitted preprocessing, model selection, metrics, and leakage checks.",
+      "Records concrete evidence and revision actions for all seven audits instead of entering bare PASS values."
+    ],
+    "forbidden": [
+      "Continues to experiments because the prose is grammatically fluent.",
+      "Defers chapter, notation, formula, model, or workflow reconciliation to final proofreading.",
+      "Uses keyword counts or transition-word presence as proof of logical or causal quality."
+    ]
+  },
+  {
+    "id": "legacy-rule-restoration",
+    "stage": 2,
+    "prompt": "旧版 skill 要求 Introduction 写三到五条具体贡献，但新版只允许两到三个贡献。是不是必须删掉旧要求？H 也曾同时用于历史对象和 Hilbert 空间。",
+    "rubric": [
+      "Preserves two or three principal contribution themes while allowing three to five subordinate, verifiable construction, analysis, or validation claims when needed.",
+      "Maps every subordinate claim to a principal problem-facing theme instead of creating unrelated main lines.",
+      "Preserves the requirement to denote an infinite-dimensional Hilbert space explicitly.",
+      "Resolves the H-family collision by assigning either the history object or the Hilbert space a different registered base character.",
+      "Records the reconciliation instead of silently deleting either legacy detail."
+    ],
+    "forbidden": [
+      "Deletes the three-to-five concrete-claim rule without distinguishing themes from subordinate claims.",
+      "Allows unrelated history and Hilbert-space meanings to coexist only because their fonts differ."
+    ]
+  },
+  {
+    "id": "web-writing-scope-boundary",
+    "stage": 2,
+    "prompt": "网页记忆里既有通用论文规则，也有 Koopman 故障诊断、志愿填报、游戏 UI 提示词和未形成固定偏好的邮件习惯。请全部作为所有论文的默认规则。",
+    "rubric": [
+      "Retains every supplied preference in the complete inventory.",
+      "Applies only the cross-manuscript subset to ordinary papers.",
+      "Loads Koopman, observer, report, prompt, or workflow details only for a matching task or project.",
+      "Preserves explicitly unknown email and formatting preferences as non-inferable boundaries.",
+      "Treats current explicit instructions and target-journal requirements as higher priority than a historical project profile."
+    ],
+    "forbidden": [
+      "Drops non-paper preferences because they are outside the default manuscript route.",
+      "Applies project-specific notation, page geometry, or diagnosis mechanisms to unrelated papers.",
+      "Claims that Gmail style analysis or another explicitly unknown preference has already been established."
+    ]
+  },
+  {
+    "id": "case-transfer-boundary",
+    "stage": 1,
+    "prompt": "案例库里有一篇同属故障诊断任务的论文用了测量解耦参考分支。我们的新论文能否直接采用？",
+    "rubric": [
+      "Uses the case as a candidate route rather than authority.",
+      "Rechecks current-paper assumptions, information availability, prior art, and applicability.",
+      "Keeps the route exploratory until confirmed."
+    ],
+    "forbidden": [
+      "Transfers the case conclusion without a new audit.",
+      "Uses the case as proof of novelty."
+    ]
+  }
+]

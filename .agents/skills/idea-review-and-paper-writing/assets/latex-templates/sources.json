@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "last_verified": "2026-07-29",
+  "templates": {
+    "ieee-journal": {
+      "display_name": "IEEE journal article (IEEEtran)",
+      "publisher": "IEEE",
+      "official_guidance_url": "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/tools-for-ieee-authors/ieee-article-templates/",
+      "catalog_url": "https://www.ctan.org/pkg/ieeetran",
+      "download_url": "https://mirrors.ctan.org/macros/latex/contrib/IEEEtran.zip",
+      "archive_filename": "IEEEtran.zip",
+      "size_bytes": 1727001,
+      "sha256": "e0cd4f5afbd42c8076092280e72b3e0a5111efe501d35de9f715cfb8da313cb4",
+      "archive_root": "IEEEtran/",
+      "main_file": "bare_jrnl.tex",
+      "encoding": "utf-8",
+      "toolchain_note": "Use the current target publication's IEEE Template Selector instructions; no single local TeX distribution version is mandated by this registry.",
+      "license": "LPPL-1.3",
+      "redistribution_note": "The archive states the LaTeX Project Public License 1.3. Retain notices and identify modified files.",
+      "project_files": [
+        "bare_jrnl.tex",
+        "IEEEtran.cls",
+        "IEEEtran_HOWTO.pdf",
+        "README",
+        "bibtex/IEEEtran.bst"
+      ],
+      "known_dependencies": []
+    },
+    "control-theory-and-applications": {
+      "display_name": "控制理论与应用 LaTeX template (2018-12-14)",
+      "publisher": "《控制理论与应用》编辑部",
+      "official_guidance_url": "https://jcta.ijournals.cn/cta_cn/ch/common_item.aspx?menu_id=20081218170725001&parent_id=24",
+      "catalog_url": "https://jcta.ijournals.cn/cta_cn/ch/first_menu.aspx?parent_id=20070717102007001",
+      "download_url": "https://jcta.ijournals.cn/uploadfile/cta_cn/20190115/kzllyy%20template20181214.zip",
+      "archive_filename": "kzllyy-template-20181214.zip",
+      "size_bytes": 362462,
+      "sha256": "0ae76921d581314e0beb648946fd7d777f769169c18a264140b53af4cfcbedc8",
+      "archive_root": "kzllyy template20181214/",
+      "main_file": "kzllyy template20181214.tex",
+      "encoding": "gbk",
+      "toolchain_note": "The journal's LaTeX instruction page currently names CTeX 2.4.5. This is legacy environment guidance and must be rechecked at the publisher page rather than replaced with an invented version.",
+      "license": "Publisher-provided author download; no repository redistribution license asserted",
+      "redistribution_note": "Keep the downloaded archive in the gitignored local cache. Do not publish or repackage it without permission from the journal.",
+      "project_files": [
+        "1-1.eps",
+        "cite.sty",
+        "GB.cpx",
+        "kzllyy template20181214.pdf",
+        "kzllyy template20181214.tex",
+        "kzllyy.cls",
+        "kzllyyhead.tex"
+      ],
+      "known_dependencies": [
+        {
+          "name": "picins.sty",
+          "bundled": false,
+          "note": "The official template requests picins.sty. CTAN states that its license prevents distribution, so this skill must not bundle it."
+        }
+      ]
+    }
+  }
+}

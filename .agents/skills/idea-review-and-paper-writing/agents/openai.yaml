@@ -1,0 +1,4 @@
+interface:
+  display_name: "Idea Review and Paper Writing"
+  short_description: "Review ideas and write journal papers with figures"
+  default_prompt: "Use $idea-review-and-paper-writing to evaluate this research idea or develop the journal manuscript and its scientific figures."

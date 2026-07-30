@@ -1,0 +1,12 @@
+# Official LaTeX archives are downloaded locally from their publishers.
+# Keep the cache out of Git because redistribution terms differ by source.
+/assets/latex-templates/cache/
+__pycache__/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+/tests/fixtures/manuscript/main.pdf
+/tests/fixtures/manuscript/main-rendered/
