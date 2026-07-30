@@ -7,682 +7,535 @@
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{array}
-\usepackage{booktabs}
-\usepackage[hidelinks]{hyperref}
 
-\allowdisplaybreaks
-\interdisplaylinepenalty=2500
-
-% ---------- theorem environments ----------
 \theoremstyle{plain}
 \newtheorem{theorem}{Theorem}
 \newtheorem{proposition}{Proposition}
-\newtheorem{lemma}{Lemma}
 \newtheorem{corollary}{Corollary}
 \theoremstyle{definition}
 \newtheorem{assumption}{Assumption}
-\newtheorem{definition}{Definition}
-\theoremstyle{remark}
-\newtheorem{remark}{Remark}
-
-% ---------- notation macros ----------
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\Sspace}[1]{\mathbb{S}_{#1}}
-\newcommand{\T}{{\mathsf{T}}}
-\newcommand{\norm}[1]{\lVert #1\rVert}
-\newcommand{\Enc}{\mathcal{E}}
-\newcommand{\Prem}{\mathcal{P}}
-\newcommand{\Fuz}{\mathcal{Z}_{\Theta}}
-\newcommand{\Koop}{\mathcal{K}}
-\newcommand{\Xmap}{\mathcal{X}}
-\newcommand{\Gnu}{\bm{G}_{\nu}}
-\newcommand{\Gz}{\bm{G}_{0}}
-\newcommand{\Fa}{\bm{F}_{\mathrm{a}}}
-\newcommand{\Fs}[1]{\bm{F}_{\mathrm{s}}^{(#1)}}
-\newcommand{\stack}[1]{\bm{#1}}
-\newcommand{\rank}{\operatorname{rank}}
-\newcommand{\Range}{\operatorname{Range}}
-\newcommand{\diag}{\operatorname{diag}}
-\newcommand{\blkdiag}{\operatorname{blkdiag}}
 
 \begin{document}
 
-\title{Protected Attention--Koopman Takagi--Sugeno Fuzzy Models for Fault Detection and Margin-Certified Isolation in Closed-Loop Nonlinear Systems}
+\title{Measurement-Decoupled Attention--Koopman--T--S Fuzzy Monitoring via Structured Basis-Perturbation Residual Learning}
 
-\author{Anonymous~Authors% <-- placeholder, to be completed before submission
-\thanks{Manuscript draft. Author information withheld in this working version.}}
-
-\markboth{IEEE Transactions on Fuzzy Systems (working draft)}{Protected Attention--Koopman T--S Fuzzy Fault Detection}
+\author{Anonymous Authors}
 
 \maketitle
 
 \begin{abstract}
-Fault detection and isolation for closed-loop nonlinear processes often has to be designed from normal data alone. This paper develops a protected monitor around a learned attention--Koopman Takagi--Sugeno fuzzy model. Conditional on the recorded command path, its free-running reference has no direct post-anchor measurement-correction edge; closed-loop measurements can still affect it causally through those commands, and anchor cleanliness remains a declared coverage event. The stacked residual admits a first-order decomposition into anchor propagation, path-dependent mismatch, stochastic disturbance, and conditional fault signatures. Three coupled constructions follow. First, a white-space spectral quotient partially removes the anchor nuisance, prices its retained component with the same deployed operator used by each statistic, and adds an unquotiented guard. Second, an input- and path-scheduled threshold propagates compact nuisance sets and calibrates a frozen superblock-maximum score, providing a simultaneous guarantee for a prespecified finite episode rather than an indefinite pointwise claim. Third, a set-valued isolation layer compares raw-record-consistent actuator, sensor, process, mixed, and nuisance-only explanation sets; channel masks enter as counterfactual recomputations, not new physical observations. Detection and attribution use nested normal regions, and a fault label is issued only when the larger attribution-normal region and every competing fault explanation are excluded on separate signature- and nuisance-coverage events. Coincident supports rule out support-wise robust labels; quantified class risk additionally requires explicit signature and nuisance budgets and is not posterior confidence.
+This paper addresses normal-data-only monitoring of closed-loop nonlinear systems when physical fault channels, directions, temporal profiles, and labeled fault samples are unavailable. First, a strictly causal attention encoder is coupled with a Takagi--Sugeno (T--S) fuzzy Koopman model to construct a measurement-decoupled normal reference. A start-indexed residual then gives the same mathematical object for free-rollout training, short-horizon monitoring, and long-reference monitoring. Second, the complete fuzzy Koopman Jacobian is decomposed into the interpolated local dynamics and the variation of normalized rule weights. This yields an implementable infinity-norm propagation bound and a reliable reference horizon without eigenvalue, singular-value, inverse-matrix, or higher-order derivative operations during training. Third, model-internal basis perturbations are applied separately to input, measurement, and lifted coordinates. Ordinary forward rollouts produce finite-horizon residual responses used to jointly reduce nominal propagation, increase perturbation sensitivity, and separate response patterns. Online scores are standardized by fuzzy operating region, controller command, command variation, and reference age, and their thresholds are calibrated using held-out normal blocks. Sufficient residual-space conditions are derived for detection and unique group separation. When the conditions for a unique decision fail, the method returns a set of compatible perturbation groups rather than an unsupported physical fault label.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Fault detection, fault isolation, Takagi--Sugeno fuzzy systems, Koopman operator, dynamic threshold, conformal calibration, closed-loop systems.
+Attention, fault detection, Koopman operator, normal-data-only learning, structured perturbation, Takagi--Sugeno fuzzy systems.
 \end{IEEEkeywords}
 
-\IEEEpeerreviewmaketitle
+\section{Introduction}
+\label{sec:intro}
 
-\section{Introduction}\label{sec:intro}
+\IEEEPARstart{N}{onlinear} closed-loop systems frequently operate across multiple regimes while providing few representative fault records. Learning normal input--output behavior is therefore attractive for monitoring, but it creates a structural difficulty: the same measurement may be used both to form a residual and to update the state and model against which that residual is evaluated. When an abnormal measurement updates an encoder, an attention context, or a fuzzy scheduling variable, the reference may move with the abnormal trajectory and reduce the discrepancy intended for detection.
 
-\IEEEPARstart{S}{afety}-critical industrial processes operate in closed loop, traverse multiple nonlinear operating regimes, and must be monitored for actuator, sensor, and process faults whose signatures are not known in advance. In most applications the data available for monitor design are records of normal operation only: faults are rare, expensive to reproduce, and almost never labeled. A practical diagnosis scheme therefore has to learn what normal closed-loop behavior looks like, detect departures from it with a controlled false-alarm rate, and attribute a detected departure to a structural fault class---all without ever having seen a fault.
+Koopman learning seeks lifted coordinates in which nonlinear dynamics admit a finite-dimensional approximation~\cite{brunton2016,lusch2018}. T--S fuzzy models interpolate local linear descriptions through normalized firing strengths~\cite{takagi1985,tanaka2001,lam2018}. Their combination has already been investigated in modeling and predictive control~\cite{hu2026}; the combination itself is consequently not claimed as a contribution here. The T--S structure is instead made operational in three places: the normal reference, the finite-horizon error propagation, and the operating-condition-dependent monitoring rule. Attention is retained to represent long input--output histories, but its output is prevented from feeding new measurements into the normal reference after initialization.
 
-Three methodological traditions address parts of this problem. Model-based residual generation---observer-based and parity-space design, residual evaluation, and threshold computation---provides the most complete theory \cite{frank1990,gertler1998,chen1999,ding2013,blanke2016}, but presupposes an explicit dynamic model with a priori uncertainty bounds. Multivariate statistical monitoring builds data-driven normal-behavior models, yet its classical instruments are static projections that ignore closed-loop dynamics \cite{dunia1998,yue2001}. Between the two, learned dynamic models have emerged: Koopman-operator liftings represent nonlinear dynamics by (bi)linear evolution in an observable space \cite{mezic2005,williams2015,korda2018,lusch2018}, T--S fuzzy structures preserve local-linear models under nonnegative memberships that sum to one \cite{takagi1985}, and attention encoders summarize input--output histories into latent states \cite{vaswani2017}. Recent work applies learned Koopman models to fault diagnosis with parity or observer residuals trained on fault-free data \cite{ding2009,bakhtiaridoust2023,irani2024}.
+Classical fuzzy fault-detection methods commonly introduce explicit fault or unknown-input channels and then design observers or filters by Lyapunov and linear-matrix-inequality techniques~\cite{nguang2007,yang2011,thumati2014,zhao2020,ran2022}. Koopman-based fault diagnosis has also used learned residual and parity relations~\cite{bakhtiaridoust2023,irani2024}. Those formulations are appropriate when a physical fault model or representative fault data are available. In the setting considered here, training data are normal, and the physical fault location, direction, and time profile are unknown. A physical minimum fault gain cannot therefore be identified. The available structure is limited to the known input and measurement coordinates and to the coordinates of the learned lifted model.
 
-The first unresolved difficulty is reference contamination. Every online monitor corrects its normal-behavior reference with incoming measurements---through an observer gain, a parity stack over the latest window, or an encoder that re-reads the measurement history. After a fault occurs, the same channel can drag the reference toward the faulty plant. The opposite extreme---a permanently free-running simulation---removes that direct correction edge but accumulates prediction error \cite{isermann2005}. In closed loop it is not causally independent of measurements, because the controller-generated recorded commands may carry their effects. What is needed is an architecture that separates the two needs in time: delayed no-alarm candidate anchors, no direct post-anchor measurement correction conditional on the recorded commands, and an explicit clean-anchor event rather than an unobservable claim that delayed acceptance proves fault freedom.
+% PLACEHOLDER - Introduction continuation
 
-The second difficulty concerns the evaluation of stacked multi-step residuals. When the reference is a free-running rollout, the natural residual is the whole window of multi-step prediction errors, and its fault-free value is driven by propagated anchor uncertainty, input-dependent model mismatch, and serially correlated noise. Classical dynamic thresholds propagate a priori uncertainty bounds through known LTI or LPV residual dynamics \cite{emami1988,frank1997,ding2000,johansson2006}; set-based thresholds propagate zonotopes or intervals through given analytic T--S or LPV models \cite{alamo2005,montesdeoca2012,combastel2015,li2018zono,ma2023}. None of these constructions applies when the model itself is learned, the mismatch envelope must be estimated from normal data as a function of the measured input, and the residual is a stacked window whose rows share the same disturbance realizations. Conversely, conformal methods deliver distribution-free false-alarm control for arbitrary scores \cite{vovk2005,laxhammar2015,cai2020,barber2023}, but calibrate the raw score directly and discard the model structure that makes a threshold input-aware. A principled division of labor between a model-based deterministic threshold generator and a distribution-free probabilistic layer is missing.
+This information boundary creates one connected design problem. Removing new measurements from the reference prevents adaptation to abnormal observations, but also exposes normal free-rollout drift. Reducing only that drift is insufficient because a less sensitive model may reduce abnormal residuals as well. Finally, an unknown physical fault direction precludes a justified low-dimensional fault-sensitive projection. The method must instead control normal propagation, retain the joint residual, and learn separable responses only for explicitly defined model-coordinate perturbation groups.
 
-The third difficulty is structured isolation. Structured and directional residuals, incidence matrices, and unknown-input observer banks solve isolation when fault entry maps are known \cite{beard1971,massoumnia1986,gertler1990,gertler1998}; data-driven constructions exist for linear systems \cite{naderi2017,ding2009}; learned-model diagnosis either isolates within a single fault category \cite{bakhtiaridoust2023} or relies on empirical channel masking without guarantees \cite{fu2024}. Quantitative isolability has been studied through distinguishability measures and residual-direction limits \cite{eriksson2013,sharifi2011}, and principal angles between actuator and sensor signature subspaces have recently been used for nonlinear systems with learned observer components \cite{taheri2026}, though without a process class, an only-normal-data protocol, or rejection semantics. What is absent is a class-level theory---actuator versus sensor versus process---for residuals of learned closed-loop models: explicit signature operators, conditions under which the classes are distinguishable, a margin that can be evaluated online, and an honest rejection output when the margin fails.
-
-This paper addresses the three difficulties jointly, for closed-loop nonlinear systems and under a strict only-normal-data protocol. The key observation is that all three reduce to properties of one object: the stacked residual of a protected free-running rollout, together with a small family of structured operators---anchor-error propagation, innovation propagation, and fault signatures---that are represented online by Jacobian--vector products of the learned model and, whenever used for safe exclusion, by certified outer enclosures. The contributions are:
-
+The principal contributions are as follows.
 \begin{enumerate}
-\item \emph{Protected residual generation.} A dual-branch architecture in which a data branch encodes the strict past of the measured closed loop while a protected branch rolls the learned attention--Koopman T--S model freely from a delay-confirmed anchor. A state machine removes direct post-anchor measurement correction conditional on the recorded-command path; it does not remove the causal measurement--controller--command path. Clean-anchor status itself remains an explicit event because absence of a prior alarm does not exclude a pre-anchor persistent fault.
-\item \emph{Post-filter design for the stacked residual.} A first-order structural decomposition of the stacked fault-free residual is derived, with an explicitly quantified bilinear remainder. On its basis a three-stage post-filter is designed: a dimensionless, energy-selective quotient of the anchor-error subspace, cross-time whitening, and a branch bank with an unannihilated guard and low-dimensional matched statistics \cite{scharf1994}. The retained anchor component is priced in each deployed, whitened branch, and the information loss is expressed by an exact retained-signature fraction rather than an unsupported onset monotonicity claim.
-\item \emph{Input- and path-scheduled dynamic threshold.} An online threshold generator propagates normal-data-estimated mismatch sets through the realized Jacobian path and adds the branchwise residual-anchor radius. A held-out block calibration prices the observable excess only after the post-filter, modes, masks, and scores are frozen. The result separates deterministic set containment, finite-horizon selection-safe calibration, and fault-time detectability assumptions instead of transferring a normal false-alarm statement to the fault regime.
-\item \emph{Set-valued structured isolation.} Actuator, sensor, and process explanations are represented by operating-path-conditioned reachable sets. The full diagnostic output combines the linear geometry of simultaneously computed residual branches with the counterfactual product output of mask-conditioned recomputations. It returns all feasible classes or supports, and reports a unique label only when every competing explanation tube is separated; physical actuator and process labels are explicitly conditional on input excitation and externally supplied process-injection structure.
+\item A measurement-decoupled attention--Koopman--T--S reference and a start-indexed residual are constructed. They unify free-rollout training, short-horizon monitoring, and long-reference monitoring, and yield an exact nonlinear residual recursion together with a delay-confirmed anchor rule.
+\item The complete T--S fuzzy Koopman Jacobian is decomposed to expose the effects of local dynamics, rule overlap, local-model disparity, and scheduling sensitivity. An infinity-norm bound, enforced by elementwise parameterization, gives a finite-horizon normal residual bound and a reliable reference horizon without costly or poorly differentiable matrix operations.
+\item Structured input-, measurement-, and lifted-coordinate perturbation rollouts are integrated with nominal propagation learning. The resulting input-conditioned statistic admits sufficient residual-space detection and group-separation conditions and returns a set-valued decision when a unique group is not supported.
 \end{enumerate}
 
-Throughout, the closed-loop information boundary is stated explicitly. Conditioning both branches on the same recorded command cancels the command itself, but it does not cancel an unrecorded additive actuator or process injection. Controller feedback changes detectability only through the realized operating path, saturation, scheduling, and model mismatch; for sensor faults, the recorded-command path cancels only under an exact command-conditioned model.
+The remainder of the paper is organized as follows. Section~\ref{sec:prelim} specifies the information boundary and formulates three aligned subproblems. Section~\ref{sec:method} develops the model, reference, propagation analysis, and structured response learning. Section~\ref{sec:detection} gives the input-conditioned detection and set-valued isolation method. Section~\ref{sec:conclusion} concludes the paper.
 
-The remainder of the paper is organized as follows. Section~\ref{sec:prelim} reviews controlled Koopman liftings and T--S fuzzy structure, states the system and information model, and formulates the two design objectives. Section~\ref{sec:method} develops the protected architecture, the structural decomposition and post-filter, the dynamic threshold generator, the isolation layer, and the learning procedure. Section~\ref{sec:experiments} specifies the evaluation protocol on a closed-loop continuous stirred-tank reactor benchmark. Section~\ref{sec:conclusion} concludes. Long proofs are collected in the Appendix.
+\section{Preliminaries and Problem Formulation}
+\label{sec:prelim}
 
-\emph{Notation:} $\R^{m}$ denotes $m$-dimensional Euclidean space and $\norm{\cdot}$ the Euclidean norm or the induced spectral norm. Dimensions carry the prefix $m$ (e.g., $m_z$), $k$ indexes samples, and $s$ denotes an anchor instant. Boldface lowercase letters are stacked vectors and boldface capitals stacked operators, displayed with explicit brackets at first use. Calligraphic capitals denote mappings, and blackboard-bold capitals denote sets, spaces, and subspaces. The fault family is reserved for $f$ and its capital forms; noise and disturbance terms use $\varepsilon$ with roman superscripts. For a matrix $M$, $M^{\T}$, $M^{\dagger}$, $\sigma_{\min}(M)$, and $\Range(M)$ are its transpose, pseudoinverse, smallest singular value, and column space. $I_m$ is the $m\times m$ identity, and $\Pi_{\mathbb{V}}$ the orthogonal projector onto a subspace $\mathbb{V}$.
+\section{Preliminaries and Problem Formulation}
+\label{sec:prelim}
 
-\section{Preliminaries and Problem Formulation}\label{sec:prelim}
+\subsection{Information Boundary and Plant Description}
 
-\subsection{Controlled Koopman Lifting}\label{sec:koopman}
-
-Consider a discrete-time controlled nonlinear system $x_{k+1}=\Xmap(x_k,u_k,\xi_k)$ with state $x_k\in\R^{m_x}$, control input $u_k\in\R^{m_u}$, and measured exogenous condition $\xi_k\in\R^{m_\xi}$. Let $\mathbb{H}^{\infty}$ be a Hilbert space of observables $\psi:\R^{m_x}\to\R$. The controlled Koopman operator family $\Koop_{(u,\xi)}:\mathbb{H}^{\infty}\to\mathbb{H}^{\infty}$ acts by composition with the frozen-input transition,
-\begin{equation}\label{eq:koopman-op}
-\big(\Koop_{(u,\xi)}\psi\big)(x)=\psi\big(\Xmap(x,u,\xi)\big),
-\end{equation}
-so that the nonlinear state evolution becomes linear evolution of observables for each frozen input pair \cite{mezic2005}. Finite-dimensional computation replaces \eqref{eq:koopman-op} by a controlled linear predictor on a learned lifting $\Psi:\R^{m_x}\to\R^{m_z}$,
-\begin{equation}\label{eq:koopman-fd}
-z_{k+1}=A z_k+B_u u_k+B_\xi\,\xi_k,\qquad
-\hat y_k=C_z z_k,
-\end{equation}
-with $z_k\approx\Psi(x_k)\in\R^{m_z}$, matrices $A\in\R^{m_z\times m_z}$, $B_u\in\R^{m_z\times m_u}$, $B_\xi\in\R^{m_z\times m_\xi}$, and an output map $C_z\in\R^{m_y\times m_z}$; \eqref{eq:koopman-fd} is a genuine approximation, obtained in practice by extended dynamic mode decomposition or by jointly learning $\Psi$ and the matrices \cite{williams2015,korda2018,lusch2018}. A single linear predictor, however, cannot represent strongly regime-dependent dynamics, which motivates the fuzzy combination reviewed next.
-
-\subsection{T--S Fuzzy Combination of Local Koopman Models}\label{sec:ts}
-
-A T--S fuzzy model \cite{takagi1985} interpolates $N_{\mathrm{rule}}$ local models through memberships defined on a premise variable $\rho\in\R^{m_\rho}$. Throughout we require the memberships $\omega_i(\rho)$ to satisfy the standard conditions
-\begin{equation}\label{eq:membership}
-\omega_i(\rho)\ge 0,\qquad \sum_{i=1}^{N_{\mathrm{rule}}}\omega_i(\rho)=1 .
-\end{equation}
-In this paper the memberships are \emph{learned}: a premise network $\Prem$ maps the available latent information to $\rho$, rule scores are quadratic in $\rho$ with learnable prototypes and bounded-spectrum metrics, and $\omega_i$ is their softmax, so \eqref{eq:membership} holds by construction and all maps are continuously differentiable. The T--S Koopman transition used throughout is
-\begin{equation}\label{eq:ts-koopman}
-\Fuz(z,u,\xi;\chi)=\sum_{i=1}^{N_{\mathrm{rule}}}\omega_i\big(\rho\big)\,\big(A_i z+B_i u+o_i\big),
-\end{equation}
-where $\rho=\Prem(z,\chi,u,\xi)$, the pair $(A_i,B_i,o_i)$ is the $i$th local Koopman model, and $\chi\in\R^{m_\chi}$ is an attention context defined in Section~\ref{sec:method}. The complete Jacobians of \eqref{eq:ts-koopman}, including the membership-variation term, are given in Section~\ref{sec:method-post}; they are the objects propagated by the threshold generator.
-
-\subsection{System, Faults, and Information Model}\label{sec:sysmodel}
-
-\begin{assumption}[Plant and fault channels]\label{as:plant}
-The monitored closed-loop plant evolves as
-\begin{equation}\label{eq:plant}
+Let $\bm{u}_k \in \mathbb{R}^{m_u}$ be the controller command available to the monitor and let $\bm{u}_k^a$ be the action applied to the plant. The closed-loop plant is described by
+\begin{equation}
 \begin{aligned}
-u^{\mathrm{act}}_k&=u_k+f^{\mathrm{a}}_k,\\
-x_{k+1}&=\Xmap^{\mathrm{n}}\big(x_k,u^{\mathrm{act}}_k,\xi_k\big)+f^{\mathrm{p}}_k+\varepsilon^{x}_k,\\
-y_k&=C x_k+f^{\mathrm{s}}_k+\varepsilon^{y}_k,
+\bm{u}_k^a &= \bm{u}_k + \bm{f}_k^a, \\
+\bm{x}_{k+1} &= \mathcal{X}_0(\bm{x}_k, \bm{u}_k^a, \bm{\xi}_k)\bm{f}_k^p + \bm{\varepsilon}_k^x, \\
+\bm{y}_k &= \mathcal{Y}_0(\bm{x}_k, \bm{u}_k^a, \bm{\xi}_k)\bm{f}_k^s + \bm{\varepsilon}_k^y,
 \end{aligned}
+\label{eq:plant}
 \end{equation}
-where $\Xmap^{\mathrm{n}}$ is the unknown fault-free transition mapping, $u_k$ is the command recorded by the controller, $y_k\in\R^{m_y}$ the measured output, $f^{\mathrm{a}}_k\in\R^{m_u}$, $f^{\mathrm{p}}_k\in\R^{m_x}$, and $f^{\mathrm{s}}_k\in\R^{m_y}$ are actuator, process, and sensor faults, and $\varepsilon^{x}_k,\varepsilon^{y}_k$ are process disturbance and measurement noise. In fault-free operation $f^{\mathrm{a}}_k=f^{\mathrm{p}}_k=0$ and $f^{\mathrm{s}}_k=0$.
-\end{assumption}
+where $\bm{x}_k \in \mathbb{X} \subseteq \mathbb{R}^{m_x}$, $\bm{y}_k \in \mathbb{Y} \subseteq \mathbb{R}^{m_y}$, and $\bm{\xi}_k \in \mathbb{R}^{m_\xi}$ denote the physical state, measured output, and measured exogenous variable, respectively. The healthy mappings $\mathcal{X}_0$ and $\mathcal{Y}_0$ are unknown. The fault vectors in~\eqref{eq:plant} define only possible physical locations; their dimensions do not provide known fault directions to the learning algorithm.
 
-\begin{assumption}[Information boundary]\label{as:info}
-Online, the monitor trusts the recorded command $u_k$, the measurement $y_k$, and the exogenous condition $\xi_k$; the applied input $u^{\mathrm{act}}_k$, the state $x_k$, and all fault signals are unavailable. The exogenous condition is assumed unaffected by faults. Model training, structure and hyperparameter selection, and all threshold calibration use normal data only, partitioned into disjoint training, estimation, detection-calibration, attribution-calibration, and frozen-test blocks; fault data enter only the final frozen test.
-\end{assumption}
+The monitor receives $\bm{u}_k$, $\bm{y}_k$, and $\bm{\xi}_k$. The action $\bm{u}_k^a$ may be unavailable. Using the controller command in the normal model answers the conditional question: how should a healthy plant evolve under the recorded command? A command modified by a feedback controller after an abnormal measurement remains a known conditioning variable, whereas an unmeasured difference between $\bm{u}_k^a$ and $\bm{u}_k$ remains a plant-side inconsistency.
 
-\begin{assumption}[Normal operating domain]\label{as:domain}
-The learned model, once frozen, is continuously differentiable on a compact normal latent domain, and the fault-free forcing terms defined in Section~\ref{sec:method-post} admit envelopes estimated on normal validation data. All guarantees are stated conditionally on these envelopes and are flagged as such.
-\end{assumption}
-
-The closed-loop setting deserves emphasis. The controller maps measurements to commands, so a sensor fault also perturbs future commands. Because the monitor conditions \emph{both} branches on the same recorded command sequence, that recorded command is common to the two model evaluations. This does not remove the unrecorded terms $f_k^{\mathrm a}$ or $f_k^{\mathrm p}$ in \eqref{eq:plant}: in an exact additive linearization the residual recursion contains $B_k^u f_k^{\mathrm a}+D_k^{\mathrm p}f_k^{\mathrm p}$ even when the controller changes $u_k$. The shared-command path of a sensor fault cancels only for an exact command-conditioned model; otherwise its leading leakage is generally first order in the command-dependent model error. Feedback can still alter all signatures through the realized operating point, saturation, scheduling, and unmodeled actuator dynamics.
-
-\subsection{Problem Formulation}\label{sec:problem}
-
-Let $\mathcal{D}_{\mathrm{n}}=\{(u_k,y_k,\xi_k)\}$ denote the normal dataset of Assumption~\ref{as:info}, and let $\alpha\in(0,1)$ be a prescribed false-alarm level. The paper solves the following two problems.
-
-\emph{Problem 1 (protected finite-episode detection).} Design, using $\mathcal{D}_{\mathrm{n}}$ only, a residual generator with no direct post-anchor measurement-correction edge conditional on the recorded command path, a finite branch bank, and path-scheduled thresholds. After freezing the monitor state, candidate, modes, and score map, require the maximum over every selectable statistic in a prespecified fault-free episode to satisfy
-\begin{equation}\label{eq:objective-far}
-\Pr\!\left\{\max_{k\ {\rm in\ episode},\,b}
-\frac{(T_{b,k}-\gamma^{\mathrm{anc}}_{b,k}
--\gamma^{\mathrm{det}}_{b,k})_+}{\sigma_b}
->q^{\mathrm{det}}_{1-\alpha}\right\}\le\alpha ,
+Only normal trajectories are used for model training and threshold calibration. No physical fault matrix, fault direction, fault derivative, fault time model, or labeled fault trajectory is used. Model parameters and calibration quantities are frozen during testing. Define the strictly past history
+\begin{equation}
+\mathcal{H}_k^- = \{\bm{u}_{k-\ell_h:k-1}, \bm{y}_{k-\ell_h:k-1}, \bm{\xi}_{k-\ell_h:k}\},
+\label{eq:history}
 \end{equation}
-and give fault-time detectability only conditional on an independently stated signature and nuisance event.
+where the current output $\bm{y}_k$ is excluded.
 
-\emph{Problem 2 (risk-limited set-valued isolation).} Construct full-monitor-state/raw-record-consistent explanation sets
-$\mathbb E_c$ for
-$c\in\{0,\mathrm a,\mathrm{s}\text{-}1,\ldots,\mathrm{s}\text{-}m_y,\mathrm p,\mathrm{mixed}\}$,
-where $0$ is nuisance-only. Given the frozen sufficient deployed observation $\mathcal O_{\mathrm{obs}}^{\mathrm{full}}$, output
-\begin{equation}\label{eq:objective-iso}
-\mathcal C_k^+
-=
-\{c:\mathcal O_{\mathrm{obs}}^{\mathrm{full}}\in\mathbb E_c^{\mathrm{full}}\}.
+% PLACEHOLDER - Section II-B
+
+\subsection{Finite-History Lifted Representation}
+
+For the healthy dynamics, Koopman evolution acts on an observable by composition with the state transition~\cite{brunton2016}. A finite vector of observables $\bm{\psi}: \mathbb{X} \to \mathbb{Z} \subseteq \mathbb{R}^{m_z}$ would satisfy the ideal composition relation
+\begin{equation}
+\bm{\psi}(\mathcal{X}_0(\bm{x}_k, \bm{u}_k, \bm{\xi}_k)) = \bm{\psi}(\bm{x}_{k+1}).
+\label{eq:koopman_ideal}
 \end{equation}
-A physical fault label is permitted only when $\mathcal C_k^+$ is a nonnormal singleton; otherwise the monitor reports \textsc{Normal-compatible}, \textsc{Nonunique}, an equivalence class, or \textsc{Out-of-model}.
 
-\section{Proposed Method}\label{sec:method}
+The paper does not assume that a finite invariant subspace exists or that the learned lifted coordinates contain the physical state. Instead, a finite-history encoder estimates a predictive coordinate $\bm{z}_k^{\mathrm{enc}} \in \mathbb{Z}$ from~\eqref{eq:history}, and a T--S interpolation of local lifted linear models approximates~\eqref{eq:koopman_ideal} on the normal operating domain. Approximation and finite-history errors are retained in the residual propagation derived in Section~\ref{sec:method}.
 
-\subsection{Protected Dual-Branch Residual Generation}\label{sec:method-arch}
+\subsection{Problem Formulation}
 
-The monitor maintains two strictly separated information paths built on one learned model $\{\Enc,\Prem,\Fuz,C_z\}$.
+Under the preceding information boundary, this paper addresses three subproblems.
+\begin{enumerate}
+\item \emph{Reference construction:} construct a normal reference that uses new measurements for residual evaluation but not for reference updates, while using one residual definition in training and in both short- and long-horizon testing.
+\item \emph{Normal propagation:} quantify the finite-horizon drift of that reference through the complete attention--Koopman--T--S mapping using operations suitable for first-order network training, and make the realized input and fuzzy operating region explicit.
+\item \emph{Residual-space decision:} using normal data only, jointly reduce normal residual propagation and increase separability of reproducible model-coordinate perturbation responses; then construct an input-conditioned detection statistic and return a unique group only when the residual response supports it.
+\end{enumerate}
 
-\subsubsection{Data branch}
-At every instant the causal attention encoder $\Enc$ reads the strict-past history
-\begin{equation}\label{eq:history}
-d^{-}_k=\begin{bmatrix}
-u_{k-\ell_h}^{\T}\!&\!y_{k-\ell_h}^{\T}\!&\!\cdots\!&\!u_{k-1}^{\T}\!&\!y_{k-1}^{\T}\!&\!\xi_{k-\ell_h}^{\T}\!&\!\cdots\!&\!\xi_{k}^{\T}
-\end{bmatrix}^{\T}
+\section{Proposed Method}
+\label{sec:method}
+
+\section{Proposed Method}
+\label{sec:method}
+
+\subsection{Attention--Koopman--T--S Normal Model}
+
+Each element of~\eqref{eq:history} is embedded as a token $\bm{h}_j$. For attention head $q \in \{1, \ldots, m_{\mathrm{hd}}\}$, the strictly causal coefficient assigned at sample $k$ to a past token $j$ is
+\begin{equation}
+\varpi_{k,j}^{(q)} = \frac{\exp\left((\bm{W}_Q^{(q)} \bm{h}_{k-1})^\mathrm{T} (\bm{W}_K^{(q)} \bm{h}_j) / \sqrt{m_a}\right)}{\sum_{\ell=k-\ell_h}^{k-1} \exp\left((\bm{W}_Q^{(q)} \bm{h}_{k-1})^\mathrm{T} (\bm{W}_K^{(q)} \bm{h}_\ell) / \sqrt{m_a}\right)}.
+\label{eq:attention}
 \end{equation}
-and returns the data-branch latent state and attention context,
-\begin{equation}\label{eq:encoder}
-\big(z^{E}_k,\;\chi^{E}_k\big)=\Enc\big(d^{-}_k\big)\in\R^{m_z}\times\R^{m_\chi}.
+
+The head outputs are concatenated to form
+\begin{equation}
+\bm{\chi}_k = \bm{W}_O \left[ \sum_{j=k-\ell_h}^{k-1} \varpi_{k,j}^{(q)} \bm{W}_V^{(q)} \bm{h}_j \right]_{q=1}^{m_{\mathrm{hd}}},
+\label{eq:context}
 \end{equation}
-The current measurement $y_k$ is deliberately excluded from $d^{-}_k$: a sensor abnormality at instant $k$ cannot enter the latent state before $k+1$, the current output residual retains direct sensitivity to it, and the isolation layer of Section~\ref{sec:method-iso} obtains a clean temporal ordering of fault propagation.
-
-\subsubsection{Protected branch}
-Let $s$ be a \emph{candidate anchor}, an instant accepted by the delayed no-alarm rule below. The protected branch initializes $\hat z_{s\mid s}=z^{E}_s$ and rolls the model freely,
-\begin{equation}\label{eq:rollout}
-\hat z_{t+1\mid s}=\Fuz\big(\hat z_{t\mid s},u_t,\xi_t;\chi^{\mathrm{n}}_{t\mid s}\big),\qquad
-\hat y_{t\mid s}=C_z\hat z_{t\mid s},
+\begin{equation}
+\bm{z}_k^{\mathrm{enc}} = \mathcal{H}_\Theta(\mathcal{H}_k^-).
+\label{eq:encoder}
 \end{equation}
-where the protected context $\chi^{\mathrm{n}}_{t\mid s}$ is produced by $\Enc$ from a protected history buffer that contains the \emph{predicted} outputs $\hat y_{\cdot\mid s}$ together with the recorded $u,\xi$; no measurement taken after $s$ enters a measurement slot of \eqref{eq:rollout}. Thus, for $s<\ell<t$,
-\begin{equation}\label{eq:conditional-blocking}
-\left.
-\frac{\partial \hat z_{t\mid s}}{\partial y_\ell}
-\right|_{u_{s:t-1},\,\xi_{s:t-1}}=0,
+The encoder in~\eqref{eq:encoder} includes the token embeddings and the multihead attention operation. Equation~\eqref{eq:attention} makes the causal information path explicit; attention itself is not treated as a separate contribution.
+
+The scheduling vector is
+\begin{equation}
+\bm{\rho}_k = \bm{W}_z \bm{z}_k + \bm{W}_\chi \bm{\chi}_k + \bm{W}_u \bm{u}_k + \bm{W}_\xi \bm{\xi}_k.
+\label{eq:scheduling}
 \end{equation}
-whereas the total closed-loop derivative need not vanish because $y_\ell$ may change a later recorded command. This proves recorded-command-conditional direct noncontamination, not causal independence or anchor cleanliness. The recorded command is common to both model evaluations, while unrecorded additive actuator and process injections remain in the residual as stated in Section~\ref{sec:prelim}.
-
-\subsubsection{Anchor state machine}
-A candidate anchor at instant $s$ is accepted only at instant $s+N_c$, and only if a dedicated anchor-eligibility score remains below a threshold $q_{\mathrm{anc}}$ throughout $(s,s+N_c]$. The score map, $q_{\mathrm{anc}}$, hysteresis, reset state, and re-anchoring schedule are selected on the training/estimation blocks and frozen \emph{before} final conformal calibration. The final detection quantile produces an alarm output but never changes the anchor, mode, or window path that generates the scores being calibrated. Let $N_{\mathrm{a}}$ be a separately declared uniform delay within which this frozen eligibility gate becomes and remains unsafe over a specified fault family with minimum amplitude/growth conditions; it is not implied by network order.
-
-\begin{proposition}[Conditional direct-path blocking]\label{prop:blocking}
-If the fault family satisfies the stated finite $N_{\mathrm a}$ anchor-gate assumption and $N_c\ge N_{\mathrm{a}}$, then no candidate containing a post-onset measurement token is newly accepted after the gate's reaction. Equation~\eqref{eq:conditional-blocking} holds for every accepted rollout. The proposition neither blocks the causal path $y\!\to\!u\!\to\!\hat z$, nor certifies that an older anchor was clean; arbitrarily slow faults have no finite bound without a minimum growth condition.
-\end{proposition}
-
-The proof is immediate from the construction and is omitted. The choice of $N_c$ is a design assumption tied to the declared fault family and frozen anchor gate; it cannot be derived from $\ell_h$ or $m_z$ alone. Using the final calibration quantile inside that gate would make the score path and its order statistic circular and invalidate the split-conformal rank argument.
-
-\subsubsection{Unified residual and exact propagation}
-For any start instant $s$ (a training start, the short-horizon start $k-\ell_s$, or the long-term anchor $s^{\mathrm{n}}_k$), define the residual, the one-step innovation, and the context mismatch
-\begin{equation}\label{eq:residual-def}
+Constant offsets are represented by an augmented constant coordinate. For $i \in \{1, \ldots, m_r\}$, define
+\begin{equation}
 \begin{aligned}
-e_{k\mid s}&=z^{E}_k-\hat z_{k\mid s},\\
-\nu_k&=z^{E}_{k+1}-\Fuz\big(z^{E}_k,u_k,\xi_k;\chi^{E}_k\big),\\
-\delta^{\chi}_{k\mid s}&=\Fuz\big(z^{E}_k,u_k,\xi_k;\chi^{E}_k\big)-\Fuz\big(z^{E}_k,u_k,\xi_k;\chi^{\mathrm{n}}_{k\mid s}\big),
+\varphi_i(\bm{\rho}) &= -\frac{1}{2}(\bm{\rho} - \bm{c}_i)^\mathrm{T} \bm{\Pi}_i (\bm{\rho} - \bm{c}_i), \\
+\omega_i(\bm{\rho}) &= \frac{\exp(\varphi_i(\bm{\rho}))}{\sum_{j=1}^{m_r} \exp(\varphi_j(\bm{\rho}))}.
 \end{aligned}
+\label{eq:membership}
 \end{equation}
-together with the output residual $r^{y}_k=y_k-C_zz^{E}_k$. All four quantities are online computable, and the same rollout \eqref{eq:rollout} is used in training and online, which removes the distribution mismatch between teacher-forced training and free-running monitoring.
 
-\begin{proposition}[Exact stacked propagation]\label{prop:exact}
-Let $\Prem$ be continuously differentiable, and define the segment-averaged Jacobian and transition products
-\begin{equation}\label{eq:segjac}
+% PLACEHOLDER - Section III-A continuation
+
+Thus, $\omega_i \geq 0$ and $\sum_i \omega_i = 1$. The diagonal metric is parameterized by
+\begin{equation}
 \begin{aligned}
-A_{k\mid s}&=\int_{0}^{1}J_z\Fuz\big(\hat z_{k\mid s}+q\,e_{k\mid s},u_k,\xi_k;\chi^{\mathrm{n}}_{k\mid s}\big)\,\mathrm{d}q,\\
-\Phi(k,j)&=A_{k-1\mid s}\cdots A_{j\mid s},\qquad \Phi(k,k)=I_{m_z}.
+\bm{\Pi}_i &= \mathrm{Diag}[\underline{\pi} + (\overline{\pi} - \underline{\pi}) \cdot \mathrm{sigmoid}(\widetilde{\bm{\pi}}_i)], \\
+\bm{c}_i &= \overline{c} \cdot \tanh(\widetilde{\bm{c}}_i),
 \end{aligned}
+\label{eq:param_metric}
 \end{equation}
-Then, for every $l\ge 1$,
-\begin{equation}\label{eq:exact-prop}
-e_{s+l\mid s}=\sum_{j=0}^{l-1}\Phi(s{+}l,\,s{+}j{+}1)\big(\nu_{s+j}+\delta^{\chi}_{s+j\mid s}\big),
-\end{equation}
-an exact identity that holds for arbitrary fault action on the data branch, because no fault quantity was differentiated in its derivation.
-\end{proposition}
+where all operations inside the brackets are elementwise and $0 < \underline{\pi} < \overline{\pi}$. Cross-coordinate dependence is retained through~\eqref{eq:scheduling}; consequently, the diagonal metric in the scheduling space does not imply an axis-aligned partition of the original history space.
 
-Stacking the window rows of \eqref{eq:exact-prop} gives the central object of the paper. With $\stack{e}_{s,N}=[\,e_{s+1\mid s}^{\T}\;\cdots\;e_{s+N\mid s}^{\T}\,]^{\T}\in\R^{Nm_z}$ and $\stack{\nu},\stack{\delta}$ stacked likewise,
-\begin{equation}\label{eq:stacked}
-\stack{e}_{s,N}=\Gnu\big(\stack{\nu}+\stack{\delta}\big),\qquad
-[\Gnu]_{l,j}=\begin{cases}\Phi(s{+}l,\,s{+}j), & j\le l,\\[2pt] 0, & j>l,\end{cases}
-\end{equation}
-where $[\Gnu]_{l,j}\in\R^{m_z\times m_z}$ denotes the $(l,j)$ block. Since the diagonal blocks equal $I_{m_z}$, the operator $\Gnu$ is unit block lower triangular and invertible: the stacked residual and the innovation sequence carry the same information, and the choice between them is a choice of coordinates. The complete fuzzy Jacobians needed in \eqref{eq:segjac}, including the membership-variation term $\Delta_\rho J_{\rho,z}$ that dominates near rule boundaries, are assembled analytically from the softmax gradient identity and are stated with their dispersion bounds in the Appendix (Proposition~\ref{prop:jacobian-app}); their neglect systematically underestimates the propagation gain, which is why all operators in this paper are built from the complete Jacobians.
-
-The integral in \eqref{eq:segjac} is an exact analytical identity, not automatically an exactly evaluated online quantity. Deployment uses a certified enclosure
-\begin{equation}\label{eq:operator-enclosure}
-A_{k\mid s}\in\mathbb A_{k\mid s}
-=
-\{\widehat A_{k\mid s}+\Delta:
-\norm{\Delta}\le\epsilon^A_{k\mid s}\},
-\end{equation}
-obtained by interval evaluation or quadrature with a verified remainder. Products, block-column norms, and signature maps are propagated as outer enclosures. The same operator-error element is shared across all branches and class explanations: its detection image is included in $\gamma^{\mathrm{det}}$, and its class-dependent image is included in the synchronized explanation tube. Without a certified $\epsilon^A_{k\mid s}$, Proposition~\ref{prop:exact} remains a conceptual identity, but the deterministic containment and safe-exclusion claims are unavailable.
-
-\subsection{Structural Decomposition and Post-Filter Design}\label{sec:method-post}
-
-This subsection derives the structure of the fault-free stacked residual and designs the evaluation filter on it. Throughout, $s$ is the window anchor and $N$ the window length; nominal operators are assembled online along the protected trajectory from Jacobian--vector products of the frozen model, while deterministic certificates use the enclosures in \eqref{eq:operator-enclosure}.
-
-\subsubsection{Context cancellation and the combined forcing}
-\begin{lemma}[Context cancellation]\label{lem:cancel}
-For every $k$ and start $s$,
-$\nu_k+\delta^{\chi}_{k\mid s}=z^{E}_{k+1}-\Fuz\big(z^{E}_k,u_k,\xi_k;\chi^{\mathrm{n}}_{k\mid s}\big)$:
-the dependence on the data-branch context $\chi^{E}_k$ cancels algebraically, at every fault amplitude.
-\end{lemma}
-
-The proof is one line from \eqref{eq:residual-def}. The stacked identity \eqref{eq:stacked} therefore depends on the data branch only through the latent sequence $z^{E}$ and on the protected branch through the normal context; in particular, fault energy appearing in $\delta^{\chi}$ alone is an artifact of the additive split and carries no isolation information (Section~\ref{sec:method-iso}).
-
-\subsubsection{First-order structure of the fault-free window}
-Write $z^{E}_k=z^{\ast}_k+\varepsilon^{\mathrm{e}}_k$, where $z^{\ast}$ is the noise-free encoding of the underlying normal trajectory and $\varepsilon^{\mathrm{e}}_k$ collects the measurement- and encoder-induced per-step error, including the context-noise term $J_\chi\Fuz\cdot(\partial\chi/\partial Y)\,\varepsilon^{y}$ of the data branch. Expanding the combined forcing of Lemma~\ref{lem:cancel} to first order and telescoping the $\varepsilon^{\mathrm{e}}$ chain through $\Gnu$ yields the following.
-
-\begin{proposition}[Structural decomposition with quantified remainder]\label{prop:decomp}
-Let $L_{\mathrm{H}}$ be a Lipschitz constant of $z\mapsto J_z\Fuz$ on the normal domain. In fault-free operation,
-\begin{equation}\label{eq:decomp}
-\stack{e}_{s,N}=\stack{\varepsilon}^{\mathrm{e}}_{+}-\Gz\,\varepsilon^{\mathrm{e}}_{s}
-+\Gnu\big(\stack{\varepsilon}^{\mathrm{m}}+\stack{\varepsilon}^{\mathrm{v}}+\stack{d}^{\chi}\big)
-+\stack{r}^{\mathrm{rem}},
-\end{equation}
-where $\stack{\varepsilon}^{\mathrm{e}}_{+}=[\,(\varepsilon^{\mathrm{e}}_{s+1})^{\T}\cdots(\varepsilon^{\mathrm{e}}_{s+N})^{\T}\,]^{\T}$ carries the per-step encoding errors, $\Gz=[\,\Phi(s{+}1,s)^{\T}\cdots\Phi(s{+}N,s)^{\T}\,]^{\T}\in\R^{Nm_z\times m_z}$ propagates the anchor-instant error through the whole window, $\stack{\varepsilon}^{\mathrm{m}},\stack{\varepsilon}^{\mathrm{v}},\stack{d}^{\chi}$ are the stacked model-mismatch, process-noise, and context-drift forcings, and the remainder obeys
-$\norm{\stack{r}^{\mathrm{rem}}}=O\big(L_{\mathrm{H}}\,(\norm{\stack{\varepsilon}^{\mathrm{e}}}^2+\norm{\stack{\varepsilon}^{\mathrm{e}}}\,\norm{\stack{e}}\,)\big)$.
-Under active faults, the window gains the signature terms
-\begin{equation}\label{eq:signatures}
-\stack{e}_{s,N}\;\mathrel{+}=\;\Fa\,\stack{f}^{\mathrm{a}}+\sum_{j=1}^{m_y}\Fs{j}\,\stack{f}^{\mathrm{s}}_j+\Gnu\,\stack{w}^{\mathrm{p}},
-\end{equation}
-with $\Fa=\Gnu\,\blkdiag\big(B^{u}_{s},\dots,B^{u}_{s+N-1}\big)$ the transition-weighted input-response operator, $\Fs{j}$ the banded operator assembled from the encoder Jacobian--vector products with respect to the channel-$j$ measurement-history slots (including, for pre-anchor onsets, the protected-context-buffer slots), and $\stack{w}^{\mathrm{p}}$ an unknown state-channel forcing representing process faults.
-\end{proposition}
-
-Three structural facts in \eqref{eq:decomp}--\eqref{eq:signatures} drive everything that follows. First, the anchor-error term $-\Gz\varepsilon^{\mathrm{e}}_s$ occupies a subspace of dimension at most $m_z$, is perfectly correlated across all window rows, and grows with the transition products---it is precisely the term whose scalar upper bound dominates radius-recursion thresholds at long reference ages. Second, actuator and process faults are \emph{propagated} forcings, filtered by $\Gnu$, whereas sensor faults enter through the encoder image of the history as \emph{banded} perturbations of width $\ell_h$ that do not accumulate along the window; this asymmetry, a direct consequence of the protected branch never reading post-anchor measurements, is the structural basis of isolation. Third, the remainder is \emph{bilinear}: its constant grows with the sharpness of the rule metrics (through $L_{\mathrm{H}}$), so the decomposition---and every statement built on it---carries the explicit validity condition that the metric sharpness times the normal error envelope be small; the monitor evaluates a membership-dispersion gate online and degrades to the guard statistic below whenever the gate fails. In the numerical verification of Section~\ref{sec:experiments}, the identity \eqref{eq:stacked} holds to $10^{-15}$, the anchor term is first-order exact with the predicted bilinear scaling, and the banded sensor structure is reproduced with machine-zero out-of-band response.
-
-\subsubsection{Stage 1: anchor annihilation}
-\begin{proposition}[Anchor quotient and retained signature]\label{prop:annihilator}
-$\rank\Gz=\rank A_{s}$, where $A_s$ is the pointwise Jacobian at the anchor (the segment average degenerates to it because $e_{s\mid s}=0$). Let $Q\in\R^{Nm_z\times(Nm_z-r_0)}$, $r_0=\rank\Gz$, be an orthonormal basis of $\Range(\Gz)^{\perp}$. Then $Q^{\T}\stack{e}$ is free of the anchor-error term up to the bilinear remainder. A signature $g$ is invisible to every fully annihilated statistic if and only if $g\in\Range(\Gz)$, and its exact retained Euclidean fraction is
-\begin{equation}\label{eq:retained-fraction}
-\rho(g)=\frac{\norm{Q^{\T}g}^2}{\norm{g}^2}
-=1-\frac{\norm{U_0^{\T}g}^2}{\norm{g}^2},
-\end{equation}
-where $U_0$ is an orthonormal basis of $\Range(\Gz)$. For a first-post-anchor actuator impulse, $\Range(\Fa^{(1)})\subseteq\Range(\Gz)$ holds if and only if $\Range(B_s^u)\subseteq\Range(A_s)$; it is therefore automatic for nonsingular $A_s$, but not for a rank-deficient anchor Jacobian. No general onset monotonicity of $\rho$ is claimed for time-varying propagation.
-\end{proposition}
-
-The annihilation is therefore a deliberate and quantified trade. For the deployed partial quotient, whitening and selection must be defined in the same coordinates. Let $W_0=\Sigma_{\mathrm e}^{-1/2}$ and form
-\begin{equation}\label{eq:anchor-effect}
-K_{\mathrm{anc}}=W_0\Gz R_{\eta}^{1/2}.
-\end{equation}
-Let $\mathbb U_1$ be the selected left singular subspace of $K_{\mathrm{anc}}$, let $Q_w$ span $\mathbb U_1^\perp$, and define the common retained operator $L_0=Q_w^{\T}W_0$. If $\Sigma_{\mathrm e}$ includes the anchor variation itself, \eqref{eq:anchor-effect} measures anchor strength relative to total normal variation, not an anchor-to-noise ratio. A singular-value cut $\tau$ is implemented as the spectral projector $\mathbf 1_{(\tau^2,\infty)}(K_{\mathrm{anc}}K_{\mathrm{anc}}^{\T})$ and is used only with a gap; equivalently, an eigenvalue cut $\lambda$ obeys $\sigma_r^2>\lambda>\sigma_{r+1}^2$. A repeated singular-value cluster is retained or removed as a whole, and a threshold collision is treated as a separate hybrid mode. Partial annihilation leaves a nonzero anchor component. For branch $b$ with $L_b=P_bL_0$, its deployed-coordinate radius
-\begin{equation}\label{eq:gamma-anchor}
-\gamma^{\mathrm{anc}}_{b,k}
-=\norm{L_b\Gz R_\eta^{1/2}}
-\end{equation}
-must be added to the threshold. Projecting the white-space singular vectors directly in the raw residual coordinates would not annihilate the selected direction. The bank also retains a guard with $L_{\mathrm g}=I$ to observe directions discarded by the quotient. Thus full annihilation gives exact anchor-translation invariance, whereas partial annihilation gives only a subgroup invariant plus the priced residual \eqref{eq:gamma-anchor}.
-
-\subsubsection{Stage 2: cross-time whitening}
-The covariance $\Sigma_{\mathrm{e}}$ of the stacked fault-free residual is estimated once per fuzzy region on the estimation block with Ledoit--Wolf shrinkage, a ridge, and an eigenvalue floor \cite{ledoit2004}; the resulting $W_0$ is used in the same frozen candidate that defines $K_{\mathrm{anc}}$, $Q_w$, and every $L_b$. Serial correlation of the encoding errors is absorbed by $\Sigma_{\mathrm{e}}$ itself. At the population level, any invertible prefilter followed by exact rewhitening differs from direct whitening only by an orthogonal transformation, and hence cannot create fault information or improve whitened class separation. Finite-sample differences may arise because regularization is not generally equivariant to arbitrary coordinate changes; these are reported as regularization effects, not information gains.
-
-\subsubsection{Stage 3: branch bank}
-Detection uses a bank of statistics on each window, all computed unconditionally at every step so that their calibration on normal data requires no alarm-conditioning:
-\begin{equation}\label{eq:bank}
+The local and interpolated lifted models are
+\begin{equation}
 \begin{aligned}
-T_{0,k}&=\bigl\lVert L_0\stack{e}\bigr\rVert
-&&\text{(omnibus, annihilated)},\\
-T_{\mathrm{g},k}&=\bigl\lVert\stack{e}\bigr\rVert
-&&\text{(guard, un-annihilated)},\\
-T_{c,k}&=\bigl\lVert P_cL_0\stack{e}\bigr\rVert
-&&\text{(matched, } c\in\mathcal{C}\text{)},
+\bm{v}_i(\bm{z}, \bm{u}) &= \bm{A}_i \bm{z} + \bm{B}_i \bm{u}, \\
+\mathcal{T}_\Theta(\bm{z}, \bm{u}, \bm{\xi}; \bm{\chi}) &= \sum_{i=1}^{m_r} \omega_i(\bm{\rho}) \bm{v}_i(\bm{z}, \bm{u}), \\
+\bm{y}^{\mathrm{dec}} &= \mathcal{D}_\Theta(\bm{z}, \bm{u}, \bm{\xi}).
 \end{aligned}
+\label{eq:ts_model}
 \end{equation}
-Here $P_0=I$ and each $P_c$ is a frozen orthogonal projector in the retained white-space coordinates. The complete branch operators are
-$L_0=Q_w^{\T}W_0$, $L_c=P_cL_0$, and $L_{\mathrm g}=I$.
-The finite library $\mathcal B_{\mathrm{det}}=\{0,\mathrm g\}\cup\mathcal C$ and every $P_c$ are generated by the same rule on estimation, calibration, and online windows. Under the idealized conditions of a frozen full annihilator, known covariance, and Gaussian noise, each matched energy is the profile GLR for a mean shift in its fixed subspace \cite{scharf1994}; these optimality statements do not extend to partial annihilation, data-dependent modes, or the dynamically normalized max. In deployment, every branch uses the complete deterministic radius
-$\gamma^{\mathrm{anc}}_{b,k}+\gamma^{\mathrm{det}}_{b,k}$
-and the shared calibration layer of Section~\ref{sec:method-threshold}. Adding a branch can improve directional sensitivity but can also inflate the calibrated maximum; no no-worse power claim is made without recalibration.
+The decoder $\mathcal{D}_\Theta$ is distinct from the physical output mapping $\mathcal{Y}_0$. This distinction is necessary because the learned lifted state need not contain the physical state.
 
-
-
-\subsection{Input-Scheduled Dynamic Threshold With a Distribution-Free Guarantee}\label{sec:method-threshold}
-
-The evaluation of the post-filtered statistics separates two responsibilities that the literature usually conflates. A deterministic \emph{threshold generator} propagates normal-data-estimated envelopes of the structured nuisance terms through the actual window operators, producing an online threshold that follows the measured input, the operating regime, and the reference age; a \emph{conformal layer} then calibrates the observable excess over this deterministic part on held-out normal blocks. The division of labor is stated once and precisely: the false-alarm guarantee of Theorem~\ref{thm:far} rests on exchangeability alone and survives misspecification of every envelope; the envelopes are accountable only for detection power and for the detectability statement of Corollary~\ref{cor:detect}, where their validity at fault-time inputs enters as an explicit assumption. The deterministic part is thus a normalization surface with physical meaning---it is what makes the threshold input-scheduled---while the distribution-free layer owns the guarantee.
-
-\subsubsection{Input-dependent envelopes}
-On the estimation block, the mismatch magnitude $\norm{\varepsilon^{\mathrm{m}}_j}$ is regressed against the features $(1,\norm{u_j},\norm{\Delta u_j},\norm{\Delta\xi_j})$ by a nonnegative quantile fit within each fuzzy region $c$, giving the online envelope
-\begin{equation}\label{eq:envelope}
-\bar\mu_j=\eta_0(c_j)+\eta_u(c_j)\norm{u_j}+\eta_{\Delta u}(c_j)\norm{\Delta u_j}+\eta_\xi(c_j)\norm{\Delta\xi_j},
-\end{equation}
-so the measured instantaneous input enters the threshold with a known fitted slope. The context-drift magnitude is enveloped by an age curve $\bar\delta(h)$ indexed by the anchor age $h$, estimated on the same block. Both are empirical normal-data surfaces. Their latent componentwise exceedances are not observable online; only the aggregate observable excess score and descriptor coverage are monitored.
-
-\subsubsection{Directional propagation over the stacked window}
-Let $E_j$ inject the $j$th forcing block into the stack and define
-$C_{b,j}=L_b\Gnu E_j$ for every $b\in\mathcal B_{\mathrm{det}}$. The deterministic threshold is
-\begin{equation}\label{eq:gamma-det}
-\gamma^{\mathrm{det}}_{b,k,N}
-=\sum_{j=1}^{N}\big(\bar\mu_j+\bar\delta(h_j)\big)\,
-\bigl\lVert C_{b,j}\bigr\rVert ,
-\end{equation}
-computed with an exact SVD or a certified spectral-norm upper bound. Uncertified finite power iteration is used only as a lower-bound witness for the aggregation-slack diagnostic, never in the sound threshold. When \eqref{eq:operator-enclosure} is nondegenerate, each displayed block norm means the certified supremum over the jointly propagated operator enclosure; the same operator-error element is not independently maximized in different physical paths when a tighter joint support-function calculation is used.
-
-\begin{proposition}[Containment for the first-order surrogate]\label{prop:containment}
-If $\norm{\varepsilon^{\mathrm{m}}_j+d^{\chi}_j}\le\bar\mu_j+\bar\delta(h_j)$ for all window steps $j$, then every branch satisfies
-$\norm{L_b\Gnu(\stack{\varepsilon}^{\mathrm{m}}+\stack{d}^{\chi})}
-\le\gamma^{\mathrm{det}}_{b,k,N}$.
-\end{proposition}
-
-The proof is the triangle inequality over block columns. It is sound for the declared surrogate but not the exact radius of the source sum. For independent compact source sets $M_j$, the exact deployed-operator radius is
-\begin{equation}\label{eq:gamma-exact}
-\gamma^{\mathrm{ex}}_{b,k,N}
-=\max_{\norm{u}=1}\sum_j h_{M_j}(C_{b,j}^{\T}u);
-\end{equation}
-for correlated sources, the sum must be replaced by the support function of their joint feasible set. Equation~\eqref{eq:gamma-det} preserves direction within each source and combines sources worst-case by the triangle inequality. The complete branch radius is
-$\gamma^{\mathrm{anc}}_{b,k}+\gamma^{\mathrm{det}}_{b,k}$;
-the bilinear remainder is not covered by either term and is priced by the calibration layer below.
-
-\begin{remark}[Honest comparison with scalar recursions]\label{rem:comparison}
-The bound \eqref{eq:gamma-det} is not pointwise tighter than a scalar-radius recursion: summing block-column norms is worst-case across sources, and in fast-mixing regimes a root-sum-of-squares recursion can be smaller. Its advantages are branch-specific evaluation through the actual $L_b$ and explicit separation of the retained anchor radius \eqref{eq:gamma-anchor}. The aggregation-slack ratio between a certified upper bound and a positive support-function witness is reported per window; it is undefined, and reported as N.A., when the propagated nuisance radius is zero.
-\end{remark}
-
-\subsubsection{Conformal layer and the false-alarm guarantee}
-For each simultaneously computed branch $b$, define the observable excess score
-$\tau_{b,k}=\max\{0,T_{b,k}-\gamma^{\mathrm{anc}}_{b,k}-\gamma^{\mathrm{det}}_{b,k}\}/\sigma_b$,
-where each $\sigma_b>0$ is frozen on the estimation block; a zero-scale branch is disabled or assigned a prespecified positive floor before calibration. Let
-$\tau_k=\max_{b\in\mathcal B_{\mathrm{det}}}\tau_{b,k}$.
-The post-filter candidate, active-mode rules, windows, and detection score map are frozen before final calibration. On a prespecified finite monitoring episode, one maximum is taken over all selectable times, modes, and detection branches. Each episode starts from the same deterministic monitor reset state, or includes the complete finite monitor state and its burn-in as part of the exchangeable unit; a maximum anchor age makes that memory finite. The online branch threshold is
-\begin{equation}\label{eq:gamma-dyn}
-\gamma^{\mathrm{dyn}}_{b,k}
-=
-\max\!\left\{\epsilon_\Gamma,\,
-\gamma^{\mathrm{anc}}_{b,k}+\gamma^{\mathrm{det}}_{b,k}
-+\sigma_b\,q^{\mathrm{det}}_{1-\alpha}\right\},
-\end{equation}
-and write $\Gamma_{b,k}:=\gamma^{\mathrm{dyn}}_{b,k}$. Here $\epsilon_\Gamma>0$ is frozen before calibration and
-$q^{\mathrm{det}}_{1-\alpha}$ is the conformal rank quantile of the frozen detection-episode maximum. The positive floor makes every deployed gauge finite and can only make the alarm more conservative. For any frozen episode-score family with $n_{\mathrm{cal}}$ calibration episodes and error budget $\delta$, this paper uses the finite-sample rule
-\begin{equation}\label{eq:finite-quantile}
+The matrices that determine the propagation bound use elementwise hard parameterizations, for example,
+\begin{equation}
 \begin{aligned}
-j_\delta&=\left\lceil(n_{\mathrm{cal}}+1)(1-\delta)\right\rceil,\\
-q_{1-\delta}&=
-\begin{cases}
-S_{(j_\delta)},&j_\delta\le n_{\mathrm{cal}},\\
-+\infty,&j_\delta=n_{\mathrm{cal}}+1,
-\end{cases}
+[\bm{A}_i]_{pq} &= \frac{\kappa_A}{m_z} \tanh([\widetilde{\bm{A}}_i]_{pq}), \\
+[\bm{B}_i]_{pq} &= \frac{\kappa_B}{m_u} \tanh([\widetilde{\bm{B}}_i]_{pq}), \\
+[\bm{W}_z]_{pq} &= \frac{\kappa_W}{m_z} \tanh([\widetilde{\bm{W}}_z]_{pq}).
 \end{aligned}
+\label{eq:hard_param}
 \end{equation}
-with a strict exceedance decision and no anti-conservative tie breaking. A finite threshold requires $\delta\ge1/(n_{\mathrm{cal}}+1)$; otherwise the corresponding decision is disabled. Mondrian cells may still be used inside the deterministic normalization, but separate marginal cell quantiles do not by themselves protect adaptive cell selection.
+Hence $\|\bm{A}_i\|_\infty \leq \kappa_A$, $\|\bm{B}_i\|_\infty \leq \kappa_B$, and $\|\bm{W}_z\|_\infty \leq \kappa_W$ by construction. No spectral projection is required.
 
-\begin{theorem}[Finite-episode simultaneous false-alarm guarantee]\label{thm:far}
-Suppose (i) training, candidate design, and final calibration use disjoint normal blocks, and the complete detection score map together with every score-generating monitor transition---including the anchor gate---is frozen before calibration; (ii) the calibration episode-maximum scores and the target normal-episode maximum score are exchangeable; and (iii) every selectable time, mode, window, and detection branch is included in that maximum, while the final quantile never feeds back into their state path. Then, in fault-free operation over the prespecified target episode,
-\begin{equation}\label{eq:far}
-\Pr\big\{\max_{k\ {\rm in\ episode}}\tau_k>q^{\mathrm{det}}_{1-\alpha}\big\}\le\alpha ,
-\end{equation}
-and every alarm stopping time within that episode inherits the same detection event. This theorem does not calibrate the post-alarm explanation sets, mask outputs, or fault-time signature coverage.
-\end{theorem}
+% PLACEHOLDER - Section III-A training
 
-The proof, in the Appendix, is the split-conformal rank argument \cite{vovk2005} applied to the frozen superblock-maximum score. This finite-episode statement must not be iterated indefinitely: selecting the first violating block over an unbounded sequence is not protected by a per-block marginal level. A declared finite collection of episodes requires one joint maximum or an explicit error-budget allocation; a genuinely indefinite guarantee would require an always-valid construction not developed here. Approximate block laws require an additional dependence bound rather than the claim that block reduction itself creates exchangeability. Because marginal coverage does not imply conditional coverage \cite{leiwasserman2014}, the protocol also reports regime-wise empirical performance without presenting it as a conditional theorem.
-
-\subsubsection{Class-conditional detectability}
-\begin{corollary}[Minimum detectable persistent fault]\label{cor:detect}
-In the fixed linear special case, let the class branch use the same deployed operator $L_c=P_cL_0$ in its statistic, threshold, and signature, and set
-$A_c=L_c\bm F_c(\bm 1_N\otimes I)$.
-For the declared positively homogeneous parameter set $\Theta_c$, define the restricted minimum gain
-$\underline s_c=\inf\{\norm{A_cf}:f\in\Theta_c,\ \norm f=1\}$.
-Let $\bm f=\bm 1_N\otimes f_0$ with $f_0\in\Theta_c$, assume $\underline s_c>0$, and assume the independent fault-time nuisance event of Assumption~A5$'$ holds. If
-\begin{equation}\label{eq:mdf}
-\underline s_c\,\norm{f_0}>2\gamma^{\mathrm{dyn}}_{c,k},
-\end{equation}
-then $T_{c,k}>\gamma^{\mathrm{dyn}}_{c,k}$ on that window. This is a deterministic statement conditional on a fault-time nuisance event; Theorem~\ref{thm:far} does not assign that event an $H_1$ probability.
-\end{corollary}
-
-The positivity of $\underline s_c$ is an injectivity requirement on the allowed fault directions; for the full parameter space it is equivalent to full column rank. If it fails, only a direction-specific condition $\norm{A_cf_0}>2\gamma^{\mathrm{dyn}}_{c,k}$ is valid. No sliding-window or $m$-of-$n$ conclusion follows from a single-window inequality.
-
-\begin{remark}[Adaptive blindness is observable, not absent]\label{rem:blindness}
-A fault that changes the recorded input may inflate $\gamma^{\mathrm{det}}$ through the known slopes of \eqref{eq:envelope}. This yields only a per-window, path-conditional stealth set. It does not bound total energy independently of duration: a nonzero signature that remains below every window threshold can accumulate unbounded energy over an indefinite run. Any reachable $+\infty$ calibration cell or guard-only mode also destroys a finite omnibus ceiling. The input-driven and mode-dependent threshold contributions are therefore logged at every alarm and suppressed alarm.
-\end{remark}
-
-\subsection{Path-Conditioned Set-Valued Isolation}\label{sec:method-iso}
-
-Isolation reuses the frozen alarm window unless a persistence assumption supplies an explicit map to a later window. It conditions only on trusted side information $z_k^{\mathrm{safe}}$---the exogenous trajectory and scheduling variables proved insensitive to the fault. A clean anchor is a separate signature-coverage event, not an observed coordinate: an undetected persistent sensor bias established before the anchor can be inherited by both branches and make even the guard residual vanish. Fault-sensitive memberships and gates remain latent variables in the explanation set; conditioning on their observed faulty point estimate could exclude the true class.
-
-\subsubsection{Physical explanation families}
-For class $c$, let $\mathcal A_c(k\mid z_k^{\mathrm{safe}})$ be a compact joint admissible graph containing the operating path, onset, temporal profile, fault parameter, model uncertainty, and hybrid mode. A single element $a$ simultaneously determines the signature $v_c(a)$, nuisance set $\mathbb U_c(a)$, active linear branches, thresholds, and mask-conditioned recomputations. The actuator family is generated by the learned input response only on operating directions supported by the normal conditional input-excitation Gramian; without such excitation or external physical knowledge, it is labeled a \emph{learned-model input-side explanation}, not a confirmed physical actuator fault. The sensor encoder-JVP family has the analogous boundary: normal histories may lie on a lower-dimensional manifold, so transverse measurement derivatives require external calibration, perturbation coverage, or a verified structural constraint. The process family requires an externally specified injection map or uncertainty family, because normal data with $f^{\mathrm p}=0$ contain no information that identifies that map. An unrestricted per-step process forcing fills the retained residual space and makes actuator--process isolation impossible.
-
-There is a further fault--nuisance gauge equivalence already at the raw-data level. A sensor fault can be absorbed into measurement noise; a process fault can be absorbed into process disturbance; and the state increment induced by an actuator fault can be absorbed into process disturbance. Hence the raw record identifies only the total measurement- and dynamics-side injections unless bounded-support separation, persistence, or external physics supplies an operational fault definition. Coincident full topological supports rule out a label that is correct at every support point; an almost-sure zero-error impossibility additionally requires overlapping positive density or mutual absolute continuity, as in finite-dimensional Gaussian models. The sets below therefore use declared high-probability nuisance tubes.
-
-The sensor-$j$ family uses one joint map for the encoder, current-output, and recorded-command paths,
-\begin{equation}\label{eq:sensor-joint}
-v_{\mathrm{s}\text{-}j}(a)
-=
-\big[F_{\mathrm{enc},j}(a)+F_{\mathrm{direct},j}(a)
-+F_{\mathrm{cmd},j}(a)\big]\theta_j .
-\end{equation}
-The three marginal images are not added independently because they share the same fault and operating path. The counterfactual command response required to construct $F_{\mathrm{cmd},j}$ is physically identifiable only when the controller law or a certified local response map from measurement perturbations to commands is available. Otherwise, $F_{\mathrm{cmd},j}$ must range over an externally declared uncertainty family, and the result is only a sensor explanation conditional on the actually recorded command sequence, not an unconditional physical sensor signature. Recomputing the entire pipeline under a channel mask is a counterfactual nonlinear observation, not generally a linear map of the unmasked stacked residual. Accordingly, define the deployed observation
-\begin{equation}\label{eq:deploy-observation}
-\mathcal O_k^{\mathrm{full}}(a,n)
-=
-\Phi\!\left(\mathsf m_{k^-}(a,n),D_k(a,n)\right)
-=
-\Big(\mathsf m_{k^-},D_k,z_k^{\mathrm{safe}},\mathcal B_{\mathrm{act}},
-\{L_{b,k},T_{b,k},\Gamma_{b,k}\}_b,
-\{\widehat A_{j\mid s},\epsilon^A_{j\mid s}\}_j,\Psi_k(D_k)\Big),
-\end{equation}
-where $D_k=(u,y,\xi)_{\mathrm{window}}$, $\mathsf m_{k^-}$ is the complete finite monitor state immediately before the decision, and $\Psi_k$ contains every unmasked/masked recomputation and $r^y$. This pair $(\mathsf m_{k^-},D_k)$ determines the anchor age, modes, operator enclosures, branches, statistics, thresholds, and oracle lifecycle; listing them in \eqref{eq:deploy-observation} makes that sufficiency auditable. A true regime, fault amplitude, class-specific oracle threshold, or unobserved mode is not an admissible observation coordinate. Consequently, if two physical explanation sets intersect in $(\mathsf m_{k^-},D_k)$, no mask, encoder, or post-filter can make them physically identifiable; the deterministic map $\Phi$ may only preserve or lose information.
-Algorithmic memberships, selectors, and active modes may be included in $\mathcal O^{\mathrm{full}}$ only when they are frozen measurable functions of $(\mathsf m_{k^-},D_k)$; identical explanations in that space necessarily receive the same values. By contrast, a healthy counterfactual regime or fault-conditioned physical mode is latent and must remain inside $\mathcal A_c$ or a certified set-valued cover.
-The associated class explanation set is
-\begin{equation}\label{eq:explanation-set}
-\mathbb E_c^{\mathrm{full}}(k\mid z_k^{\mathrm{safe}})
-=
-\{\mathcal O_k^{\mathrm{full}}(a,n):a\in\mathcal A_c(k\mid z_k^{\mathrm{safe}}),\
-n\in\mathbb U_c(a)\}.
-\end{equation}
-
-For computation, each class has a frozen Borel outer family on $q\in[0,+\infty]$ satisfying
-$\overline{\mathbb E}_c(q_1)\subseteq\overline{\mathbb E}_c(q_2)$ for $q_1\le q_2$,
-$\overline{\mathbb E}_c(+\infty)$ equal to the declared observation universe, and the right-closure condition
-$\overline{\mathbb E}_c(q)=\bigcap_{r>q}\overline{\mathbb E}_c(r)$. Hence the measurable score
-\begin{equation}\label{eq:explanation-score}
-s_c(\mathcal O)=\inf\{q:\mathcal O\in\overline{\mathbb E}_c(q)\}
-\end{equation}
-obeys $\overline{\mathbb E}_c(q)=\{\mathcal O:s_c(\mathcal O)\le q\}$, including at boundaries. Its cell-refinement hierarchy and cache are shared across $q$; unresolved cells remain feasible, so a larger $q$ cannot become computationally less feasible merely because it received a different refinement budget. For fault classes, the deployed radius $q_c$ comes from the declared physical/operator and fault-time nuisance bounds; normal calibration does not determine it.
-
-The normal attribution set must inspect the same full observation as the fault classes. The normal calibration data are pre-partitioned into disjoint detection- and attribution-calibration episodes. First $q^{\mathrm{det}}_{1-\alpha}$ is computed and frozen on the detection subset. Only then, on every attribution-calibration episode, the frozen mask/enclosure/oracle pipeline is replayed at every selectable hypothetical isolation time, and
-$S_i^0=\max_t s_0(\mathcal O_{i,t}^{\mathrm{full}})$ is calibrated by \eqref{eq:finite-quantile} at budget $\beta$. This ordering is necessary because $\mathcal O^{\mathrm{full}}$ contains the deployed $\Gamma_b$, which depends on the already-frozen detection quantile. With $0<\beta<\alpha$, define
-\begin{equation}\label{eq:nested-normal}
-\mathbb A_0^{\mathrm{det}}
-\!=\{\mathcal O^{\mathrm{full}}:\tau^{\mathrm{det}}\le q^{\mathrm{det}}_{1-\alpha}\}
-\subseteq
-\mathbb E_0^{\mathrm{attr}}
-\!=\mathbb A_0^{\mathrm{det}}
-\cup\overline{\mathbb E}_0^{\mathrm{full}}(q^{\mathrm{attr}}_{1-\beta}).
-\end{equation}
-Thus an alarm can remain \textsc{Normal-compatible}, but only when its complete counterfactual observation has a calibrated normal explanation. If $\beta<1/(n_{\mathrm{cal}}^{\mathrm{attr}}+1)$, then $q^{\mathrm{attr}}_{1-\beta}=+\infty$, the normal class cannot be excluded, and nonnormal singleton reporting is disabled.
-
-\subsubsection{Set-valued decision and its linear special case}
-Given the observed tuple $\mathcal O_{\mathrm{obs}}^{\mathrm{full}}$, the output is
-\begin{equation}\label{eq:candidate-set}
-\mathcal C_k^+(\mathcal O_{\mathrm{obs}}^{\mathrm{full}})
-=
-\{0:\mathcal O_{\mathrm{obs}}^{\mathrm{full}}\in\mathbb E_0^{\mathrm{attr}}\}
-\cup
-\{c\in\mathcal C_{\mathrm{fault}}:
-\mathcal O_{\mathrm{obs}}^{\mathrm{full}}\in\overline{\mathbb E}_c(q_c)\},
-\end{equation}
-where $c=0$ is the nuisance-only normal explanation. An alarm is not a fault-presence certificate because the detector has nonzero false-alarm risk.
-
-\begin{theorem}[Coverage-conditional isolation and family-wise normal risk]\label{thm:iso}
-Let $\bm c^\star=(c_t^\star)_{t\in\mathcal T_{\mathrm{sel}}}$ be the true class/support trajectory on the finite set of every selectable report time/mode/window/support, with $c_t^\star=0$ before onset and piecewise changes allowed for sequential or mixed faults. Let
-$\mathcal E_{\mathrm{sig},\bm c^\star}^{\mathrm{ep}}=\bigcap_{t\in\mathcal T_{\mathrm{sel}}}\mathcal E_{\mathrm{sig},c_t^\star,t}$
-and
-$\mathcal E_{\mathrm{nuis},\bm c^\star}^{\mathrm{ep}}=\bigcap_{t\in\mathcal T_{\mathrm{sel}}}\mathcal E_{\mathrm{nuis},c_t^\star,t}$,
-where the same joint path generates all time-indexed explanations. On their intersection, $c_t^\star\in\mathcal C_t^+$ at every selectable time. If additionally
-$\Pr_{\bm c^\star}((\mathcal E_{\mathrm{sig},\bm c^\star}^{\mathrm{ep}})^c)\le\delta_{\bm c^\star}$
-and
-$\Pr_{\bm c^\star}((\mathcal E_{\mathrm{nuis},\bm c^\star}^{\mathrm{ep}})^c)\le\epsilon_{\bm c^\star}$,
-the probability that there exists a reported singleton $\mathcal C_t^+=\{c\}$ with $c\ne c_t^\star$ is at most
-$\delta_{\bm c^\star}+\epsilon_{\bm c^\star}$.
-Under $H_0$, episode calibration of \eqref{eq:nested-normal} gives
-$\Pr_0\{\text{any nonnormal singleton in the episode}\}\le\beta$,
-because such an output must exclude the normal attribution set.
-A set containing $0$ is \textsc{Normal-compatible}, an empty set is \textsc{Out-of-model}, and multiple classes are \textsc{Nonunique}. Pointwise $H_1$ coverage is insufficient for the displayed stopped/selected episode risk. No per-label posterior confidence, FDR, PPV, or $H_1$ class risk follows from the detection level $\alpha$ or the normal budget $\beta$. When an episode-level $\delta_c$ or $\epsilon_c$ is unavailable, the corresponding statement remains simultaneous-coverage-conditional only.
-\end{theorem}
-
-For the sublibrary of simultaneously computed linear branches derived from one frozen residual, define
-\begin{equation}\label{eq:star-gauge}
-\norm{x}_{\star,k}
-=
-\max_{b\in\mathcal B_{\mathrm{act}}}
-\frac{\norm{L_{b,k}x}}{\Gamma_{b,k}}.
-\end{equation}
-After quotienting its joint kernel, this is a norm when all active $\Gamma_b$ are finite and positive. In this special case define
-$\mathbb K_c(k\mid z_k^{\mathrm{safe}})
-=\{v_c(a):a\in\mathcal A_c(k\mid z_k^{\mathrm{safe}})\}$
-and suppose class $c$ has a complete symmetric nuisance ball
-$\mathbb U_c=\{n:\norm{n}_{\star,k}\le r_c\}$. A true signature $v$ from $c^\star$ excludes every competing fault class whenever
-\begin{equation}\label{eq:margin}
-\min_{c\in\mathcal C_{\mathrm{fault}},\,c\ne c^\star}
-\operatorname{dist}_{\star,k}
-\big(v,\mathbb K_c(k\mid z_k^{\mathrm{safe}})\big)
->r_{c^\star}+r_c.
-\end{equation}
-If all fault-class radii equal one, the constant two is exact for that complete common-ball model when the competing distance is attained. The normal competitor is different: it is the full-observation set $\mathbb E_0^{\mathrm{attr}}$ in \eqref{eq:nested-normal}, so it must be excluded by direct explanation-set disjointness. Only when its relevant residual slice is representable as $\mathbb K_0\oplus\{n:\norm n_{\star,k}\le r_0^{\mathrm{attr}}\}$ does this reduce to
-$\operatorname{dist}_{\star,k}(v,\mathbb K_0)>r_{c^\star}+r_0^{\mathrm{attr}}$.
-Using the detection radius one for that attribution set is invalid. Fixed-subspace principal-angle bounds are conservative computable corollaries of the fault--fault part of \eqref{eq:margin}, not the general decision rule.
-
-\subsubsection{Mixed faults and reporting boundary}
-For a support $S$, the mixed family is generated by a joint nonlinear map
-$g_S(a,\{\theta_c\}_{c\in S})$. The sum of single-fault signatures is only a local first-order approximation; its cross-fault remainder is bounded and included in a mixed-specific nuisance set. A component $c$ is reported as necessarily present only if every feasible support not containing $c$ is excluded. The full support dictionary is exponential, so the implemented restriction to at most one sensor fault plus one dynamics-side fault is declared as a concurrency prior. If a physical actuator map or process injection map is not identifiable under the stated information set, the output is the corresponding learned-model or process-side equivalence class rather than a physical confirmation.
-
-Masking remains useful because it removes the raw channel from all encoder-mediated paths when the complete pipeline is recomputed, but the command-dependent model-error path is generally first order and the nonlinear recomputation remainder is explicitly budgeted. Failure of masked exoneration therefore never excludes a sensor explanation. A premise failure triggers fail-closed output only when an implemented monitor actually detects it. An unobserved failure of $\mathcal E_{\mathrm{sig}}$ may instead yield a stable but wrong singleton; this is why signature coverage is reported as an unverified physical assumption wherever no independent bound exists.
-
-\subsection{Learning and Calibration Protocol}\label{sec:method-learning}
-
-All model components are trained jointly on the normal training block. The history \eqref{eq:history} is tokenized per instant, embedded linearly, and processed by a causal multi-head attention encoder with smooth activations, so that every Jacobian used above exists and is continuous; the premise network is a small bottleneck MLP; the rule metrics use a bounded-spectrum parameterization; the local matrices $A_i$ carry a soft spectral cap as a numerical safeguard; and the output map $C_z$ is linear, which the isolation layer exploits. Training minimizes a free-running multi-horizon loss: anchors $s$ and horizons $N\sim\mathrm{Unif}\{1,\dots,N_{\max}\}$ are sampled, the same rollout \eqref{eq:rollout} used online produces $\hat z_{s+j\mid s}$ and $\hat y_{s+j\mid s}$ without reading intermediate measurements, and weighted latent and output prediction errors are accumulated, together with a decoding-consistency term and a variance regularizer that jointly exclude latent collapse, a membership-balance term that keeps all rules in use without forbidding sharp partitions, and a finite-horizon product penalty on the complete Jacobian norms that discourages explosive rollouts. Channel masking is applied during training with a fixed distribution (all-pass, single-channel, and independent multi-channel masking), which trains the shared mask-conditioned encoder used for isolation without degrading the unmasked task.
-
-Calibration discipline is stricter than usual and is essential for the guarantee of Section~\ref{sec:method-threshold}: the normal data are split into \emph{five} disjoint frozen blocks---(i) a training block for all learnable parameters; (ii) an estimation block on which the mismatch envelopes, the context-drift curve, stacked covariances, branch scales, positive threshold floor, anchor-eligibility gate, complete mode/state transitions, and outer-family refinement hierarchy are fixed; (iii) a detection-calibration block on which only $q^{\mathrm{det}}_{1-\alpha}$ is computed; (iv) an attribution-calibration block on which that detection quantile is treated as fixed and only $q^{\mathrm{attr}}_{1-\beta}$ is computed from full-normal scores; and (v) a held-out normal test segment that joins the frozen fault test set. Fitted preprocessing is learned on the training block only, and isolation gaps of length $\ell_h+N_{\max}$ separate consecutive blocks. The frozen re-anchoring policy is replayed identically on every calibration episode, but neither quantile may feed back into the state path that generated its own calibration scores, and the detection-calibration episodes are not reused for attribution calibration. No fault data influence any of these steps.
-
-\subsection{Online Operation and Complexity}\label{sec:method-online}
-
-The set-membership oracle is fixed before calibration. For each declared class/support and finite hybrid mode, its compact continuous parameter domain is partitioned by one shared refinement tree. Analytic, interval, or certified spectral bounds map each cell to a nested outer enclosure of the complete observation \eqref{eq:deploy-observation}, including numerical tolerance. A class is feasible if at least one enclosure intersects the observed tuple and its synchronized tube. Cells for competing explanations are refined along the frozen hierarchy until they separate or the declared alarm-time budget is exhausted; unresolved competitors remain in the candidate set, and the common monotone cache enforces the right-closed nesting required by \eqref{eq:explanation-score}. Thus numerical approximation can increase \textsc{Nonunique} but cannot unsafely exclude a declared explanation. The normal class $c=0$ is always included in the dictionary and its full oracle is replayed at every hypothetical calibration-time report. Mixed supports are restricted by the concurrency prior stated above.
-
-\begin{algorithm}[!t]
-\caption{Protected monitoring at instant $k$}\label{alg:online}
-\begin{algorithmic}[1]
-\STATE encode $d^{-}_k\!\to\!(z^{E}_k,\chi^{E}_k)$; advance short- and long-term rollouts \eqref{eq:rollout}
-\STATE update $\nu_{k-1}$, $\delta^{\chi}_{k-1\mid s}$, $r^{y}_k$, and the window stack $\stack{e}_{s,N}$
-\STATE assemble/update certified enclosures of $\Gnu,\Gz$, then $W_0,K_{\mathrm{anc}},Q_w$ and every calibrated detection-branch operator $L_b$
-\STATE compute all detection statistics and their complete thresholds with the same $L_b$
-\STATE update the pre-calibration-frozen anchor gate and confirm/advance anchors independently of the final quantiles
-\STATE emit the final detection alarm without feeding it back into the score-generating monitor path
-\IF{alarm}
-\STATE recompute all declared masks and form $\mathcal O_{\mathrm{obs}}^{\mathrm{full}}$; query the certified outer-cell oracle
-\STATE report $\mathcal C_k^+$ as fault singleton, \textsc{Normal-compatible}, \textsc{Nonunique}, equivalence class, or \textsc{Out-of-model}
-\ENDIF
-\end{algorithmic}
-\end{algorithm}
-
-Before an alarm, the costs are the encoder/rollout, the JVPs required by every detection branch, certified norm bounds, and the thin decompositions that update $W_0$ and $Q_w$ under the frozen candidate rule. These same operations are replayed during calibration. Alarm-time isolation additionally costs $m_y$ full mask-conditioned recomputations and a hybrid-cell membership search. Its worst-case cost is exponential in the allowed support size and in the continuous parameter dimension; the stated concurrency prior and an explicit refinement budget make it finite, but no general real-time claim is made for the isolation solver. Runtime and unresolved-cell rates are reported separately from the detection-front-end latency.
-
-\section{Experimental Protocol}\label{sec:experiments}
-
-The method targets closed-loop process data under the only-normal-data protocol of Assumption~\ref{as:info}. This section fixes the complete evaluation protocol. In accordance with that protocol, all numerical entries are produced by a single frozen evaluation run executed after every design quantity of Sections~\ref{sec:method}--\ref{sec:method-online} has been frozen; the result placeholders below are intentionally left open in this manuscript version and no number reported here was obtained from fault data.
-
-\subsection{Benchmark and Data Split}
-
-The primary benchmark is a closed-loop continuous stirred-tank reactor (CSTR) simulation dataset with commands $u=(C_{\mathrm{i}},T_{\mathrm{i}},T_{\mathrm{ci}})$ and measured outputs $y=(C,T,T_{\mathrm{c}},Q_{\mathrm{c}})$, one long normal record, and eight faulty records with a common fault onset; faults 1--2 are process faults, 3--5 actuator faults, and 6--8 sensor faults, so the benchmark covers exactly the three structured classes of Section~\ref{sec:method-iso}. The normal record is partitioned $55/15/10/10/10\%$ into the five blocks of Section~\ref{sec:method-learning} with isolation gaps; the faulty records join the frozen test set with per-sample labels beginning at the true onset.
-
-\subsection{Numerical Design Verification}\label{sec:design-verification}
-
-Independent randomized checks currently verify only algebraic subcomponents: the stacked propagation identity, the full-annihilator equality $Q^{\T}\Gz=0$, the predicted first-order/bilinear scaling, the banded encoder response, and containment of sampled nuisance realizations by a certified block-norm sum. They do not validate the new white-space partial quotient, physical signature coverage, the hybrid outer-cell oracle, or Theorem~\ref{thm:iso}; those require the explicit tests below and remain unfilled in this draft. In particular, no principal-angle classification count is used as evidence for the set-valued theorem.
-
-\subsection{Baselines and Ablations}
-
-Baselines span the three traditions of Section~\ref{sec:intro}: static multivariate monitoring (PCA with $T^2$/SPE, a reconstruction autoencoder), a one-step dynamic predictor with a constant calibrated threshold, and a measurement-driven Koopman parity design representative of \cite{irani2024,bakhtiaridoust2023}. Ablations remove one design element at a time: (A1) no anchor annihilation; (A2) no matched branches (omnibus only); (A3) scalar-radius threshold in place of the block-column generator; (A4) conformal calibration of the raw score without the deterministic part; (A5) envelope without input features; (A6) no counterfactual mask recomputations; and (A7) forced singleton output without set-valued rejection. Each ablation isolates one claim of Sections~\ref{sec:method-post}--\ref{sec:method-iso}.
-
-\subsection{Metrics}
-
-Detection is scored by finite-episode family-wise false-alarm rate, missed-detection rate, delay, and empirical run length. Threshold reporting separates $\gamma^{\mathrm{anc}}$, $\gamma^{\mathrm{det}}$, the calibration term, and $\epsilon_\Gamma$, together with $n_{\mathrm{cal}}^{\mathrm{det}}$, $n_{\mathrm{cal}}^{\mathrm{attr}}$, attainable $\alpha/\beta$ resolution, monitor reset state, and unresolved/infinite modes. Isolation reports the frequencies of nonnormal singleton, \textsc{Normal-compatible}, \textsc{Nonunique}, equivalence-class, and \textsc{Out-of-model} outputs; conditional correctness is reported only among nonnormal singletons. Pointwise fault-time coverage diagnostics are reported separately from the simultaneous selected-episode $\mathcal E_{\mathrm{sig}}^{\mathrm{ep}}/\mathcal E_{\mathrm{nuis}}^{\mathrm{ep}}$ assumptions used by Theorem~\ref{thm:iso}. Additional diagnostics are full-state/raw-record class overlap, clean-anchor ambiguity, conditional input-excitation rank, sensor transverse-JVP sensitivity, process-map prior width, mixed-interaction budget, outer-cell refinement count, monotonicity violations, and unresolved-support rate.
-
-\begin{table}[!t]
-\centering
-\caption{Detection results on the frozen CSTR test set (to be completed by the frozen evaluation run; no entry may be filled from any run that influenced design).}
-\label{tab:detection}
-\begin{tabular}{lcccc}
-\toprule
-Method & FAR & MDR & Delay & ARL$_0$\\
-\midrule
-PCA $T^2$/SPE & -- & -- & -- & --\\
-Reconstruction AE & -- & -- & -- & --\\
-One-step predictor & -- & -- & -- & --\\
-Koopman parity \cite{irani2024} & -- & -- & -- & --\\
-Proposed (full) & -- & -- & -- & --\\
-Ablations A1--A5 & -- & -- & -- & --\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[!t]
-\centering
-\caption{Isolation results on the frozen CSTR test set (to be completed by the frozen evaluation run; rejection is reported as an explicit outcome).}
-\label{tab:isolation}
-\begin{tabular}{lcccc}
-\toprule
-Method & Fault singleton & Normal-compatible & Nonunique & Out-of-model\\
-\midrule
-Proposed & -- & -- & -- & --\\
-A6 (no masking) & -- & -- & -- & --\\
-A7 (forced label) & -- & -- & -- & --\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\section{Conclusion}\label{sec:conclusion}
-
-This paper turned the informal requirement ``learn normal behavior and monitor against it'' into a protected architecture with three explicitly separated layers. Conditional on the recorded commands, the protected dual-branch design removes direct post-anchor measurement correction while retaining the closed-loop measurement--command path, and the exact propagation identity reduces monitoring to the structure of one stacked residual. On that structure, the energy-selective anchor quotient with a guard branch exposes and prices its retained nuisance and blind directions; the input- and path-scheduled threshold separates deterministic set containment from a finite-episode simultaneous calibration statement; and the isolation layer replaces forced attribution by operating-path-conditioned explanation sets that include the mask-conditioned counterfactual outputs and return equivalence classes when physical structure is insufficient.
-
-The limitations are structural. A recorded command common to both branches cancels, whereas unrecorded actuator and process injections do not; their physical labels nevertheless require input excitation and an externally specified process map that only-normal data cannot supply. Partial anchor annihilation leaves a priced residual, and a fault aligned with the removed subspace remains a guard-only case. Normal calibration controls neither fault-time nuisance coverage nor signature-model coverage. A per-window threshold does not bound indefinite accumulated stealth energy, and finite-episode block calibration does not yield an always-valid first-alarm guarantee. Completion of the frozen benchmark evaluation, physical validation of the declared signature families, and an always-valid extension for indefinite monitoring are therefore separate next steps.
-
-\appendix
-
-\subsection{Complete Fuzzy Jacobians and Dispersion Bounds}\label{app:jacobian}
-
-\begin{proposition}[Complete T--S Koopman Jacobians]\label{prop:jacobian-app}
-Let the memberships be the softmax of scores $\varsigma_i(\rho)=-\tfrac12(\rho-p_i)^{\T}M_i(\rho-p_i)+o^{\omega}_i$ with $M_i=M_i^{\T}\succ0$, and let $\Prem$ be continuously differentiable. With $\varsigma^{\nabla}_i=-M_i(\rho-p_i)$, $\bar\varsigma^{\nabla}=\sum_i\omega_i\varsigma^{\nabla}_i$, $\bar v=\sum_i\omega_iv_i$, and $v_i=A_iz+B_iu+o_i$,
-\begin{equation}\label{eq:jac-app}
+Training uses a normal training split and a free-rollout horizon $\ell_{\mathrm{tr}}$. Starting from $\bm{z}_{s|s}^{\mathrm{fr}} = \bm{z}_s^{\mathrm{enc}}$, the predicted output, rather than the new measurement, updates the rollout history:
+\begin{equation}
 \begin{aligned}
-\nabla_{\rho}\omega_i&=\omega_i\big(\varsigma^{\nabla}_i-\bar\varsigma^{\nabla}\big),\\
-J_z\Fuz&=A_{\omega}+\Delta_{\rho}J_{\rho,z},\qquad
-J_u\Fuz=B_{\omega}+\Delta_{\rho}J_{\rho,u},\\
-\Delta_{\rho}&=\sum_i\omega_i\,(v_i-\bar v)\big(\varsigma^{\nabla}_i-\bar\varsigma^{\nabla}\big)^{\T},
+\bm{\chi}_{t|s}^{\mathrm{fr}} &= \mathcal{H}_\Theta(\mathcal{H}_{t|s}^{\mathrm{fr}}), \\
+\bm{z}_{t+1|s}^{\mathrm{fr}} &= \mathcal{T}_\Theta(\bm{z}_{t|s}^{\mathrm{fr}}, \bm{u}_t, \bm{\xi}_t; \bm{\chi}_{t|s}^{\mathrm{fr}}), \\
+\bm{y}_{t|s}^{\mathrm{fr}} &= \mathcal{D}_\Theta(\bm{z}_{t|s}^{\mathrm{fr}}, \bm{u}_t, \bm{\xi}_t).
 \end{aligned}
+\label{eq:rollout}
 \end{equation}
-with $A_{\omega}=\sum_i\omega_iA_i$ and $B_{\omega}=\sum_i\omega_iB_i$, and the dispersion bound
-\begin{equation}\label{eq:disp-app}
-\norm{\Delta_{\rho}J_{\rho,z}}\le
-\sqrt{\lambda_{\max}(\Sigma_v)}\,\sqrt{\lambda_{\max}\big(J_{\rho,z}^{\T}\Sigma_{\varsigma}J_{\rho,z}\big)},
+
+The normal prediction loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{pred}} = \sum_s \sum_{\ell=1}^{\ell_{\mathrm{tr}}} \left( \lambda_z \|\bm{z}_{s+\ell}^{\mathrm{enc}} - \bm{z}_{s+\ell|s}^{\mathrm{fr}}\|_1 + \lambda_y \|\bm{y}_{s+\ell} - \bm{y}_{s+\ell|s}^{\mathrm{fr}}\|_1 \right).
+\label{eq:loss_pred}
 \end{equation}
-where $\Sigma_v=\sum_i\omega_i(v_i-\bar v)(v_i-\bar v)^{\T}$ and $\Sigma_{\varsigma}=\sum_i\omega_i(\varsigma^{\nabla}_i-\bar\varsigma^{\nabla})(\varsigma^{\nabla}_i-\bar\varsigma^{\nabla})^{\T}$.
+Free rollout, rather than one-step teacher forcing, matches the online reference mechanism.
+
+\subsection{Measurement-Decoupled Reference and Unified Residual}
+
+For any start $s$, the rollout~\eqref{eq:rollout} defines the lifted residual
+\begin{equation}
+\bm{e}_{k|s}^z = \bm{z}_k^{\mathrm{enc}} - \bm{z}_{k|s}^{\mathrm{fr}}, \quad k \geq s,
+\label{eq:lifted_residual}
+\end{equation}
+and the output-consistency residual is
+\begin{equation}
+\bm{e}_k^y = \bm{y}_k - \mathcal{D}_\Theta(\bm{z}_k^{\mathrm{enc}}, \bm{u}_k, \bm{\xi}_k).
+\label{eq:output_residual}
+\end{equation}
+Equation~\eqref{eq:lifted_residual} is the same object used in~\eqref{eq:loss_pred}. Online, $s = k - \ell_{\mathrm{sh}}$ gives a short rolling residual. Let $s_k^0$ be the latest delay-confirmed normal anchor and define
+\begin{equation}
+\bm{z}_k^0 = \bm{z}_{k|s_k^0}^{\mathrm{fr}}, \quad \ell_k^0 = k - s_k^0.
+\label{eq:long_reference}
+\end{equation}
+
+% PLACEHOLDER - Section III-B continuation
+
+Then $s = s_k^0$ gives the long-reference residual. The minimal joint residual is
+\begin{equation}
+\bm{e}_k = [(\bm{e}_k^y)^\mathrm{T} \; (\bm{e}_{k|k-\ell_{\mathrm{sh}}}^z)^\mathrm{T} \; (\bm{e}_{k|s_k^0}^z)^\mathrm{T}]^\mathrm{T}.
+\label{eq:joint_residual}
+\end{equation}
+
+Thus, training and testing do not introduce different lifted residuals; only the rollout start changes.
+
+An encoded state is not immediately accepted as a normal anchor. It is stored as a candidate and committed after $\ell_{\mathrm{cf}}$ samples only if no warning is issued for any window containing that candidate. During warning and alarm intervals, the accepted anchor is frozen and~\eqref{eq:rollout} continues without measurement updates.
+
+\begin{proposition}[Delayed anchor acceptance]
+\label{prop:anchor}
+Suppose every abnormal trajectory in a specified detectable class triggers a warning within at most $\ell_{\mathrm{det}}$ samples after its onset. If $\ell_{\mathrm{cf}} \geq \ell_{\mathrm{det}}$, no candidate generated at or after that onset is committed before the warning.
 \end{proposition}
 
 \begin{proof}
-The softmax gradient follows from logarithmic differentiation. Differentiating $\Fuz=\sum_i\omega_iv_i$ in $z$ gives $A_\omega$ plus $\sum_i v_i(\nabla_\rho\omega_i)^{\T}J_{\rho,z}$; inserting the gradient identity and using $\sum_i\omega_i(\varsigma^{\nabla}_i-\bar\varsigma^{\nabla})=0$ centers $v_i$ to $v_i-\bar v$, giving $\Delta_\rho$. Writing $\Delta_\rho=V_wS_w^{\T}$ with $V_w=[\sqrt{\omega_i}(v_i-\bar v)]_i$ and $S_w=[\sqrt{\omega_i}(\varsigma^{\nabla}_i-\bar\varsigma^{\nabla})]_i$ and applying the submultiplicative bound $\norm{V_wS_w^{\T}J_{\rho,z}}\le\norm{V_w}\,\norm{S_w^{\T}J_{\rho,z}}$ yields \eqref{eq:disp-app}. All expressions were verified against central differences to $10^{-10}$.
+A candidate requires $\ell_{\mathrm{cf}}$ consecutive warning-free samples before commitment. Under the stated premise, a warning occurs no later than $\ell_{\mathrm{det}} \leq \ell_{\mathrm{cf}}$ samples after onset, so a post-onset candidate fails the acceptance condition.
 \end{proof}
 
-The second term of \eqref{eq:jac-app} vanishes as the memberships approach one-hot and can dominate near rule boundaries; estimating the propagation gain by $\norm{A_\omega}$ alone therefore systematically underestimates it. The same structure bounds the context sensitivity $\norm{J_\chi\Fuz}$, which enters the drift envelope $\bar\delta(h)$ and the buffer path of the sensor signature.
+Proposition~\ref{prop:anchor} is conditional; faults that never change the available input--output information cannot be covered. After an alarm clears, the method waits at least $\ell_h$ samples, so that the encoder history no longer contains the flagged interval, and then repeats delay confirmation.
 
-\subsection{Proof of Proposition~\ref{prop:exact}}\label{app:exact}
+Define the encoded-state innovation and the context mismatch as
+\begin{equation}
+\begin{aligned}
+\bm{\nu}_k &= \bm{z}_{k+1}^{\mathrm{enc}} - \mathcal{T}_\Theta(\bm{z}_k^{\mathrm{enc}}, \bm{u}_k, \bm{\xi}_k; \bm{\chi}_k), \\
+\bm{\delta}_{k|s}^\chi &= \mathcal{T}_\Theta(\bm{z}_k^{\mathrm{enc}}, \bm{u}_k, \bm{\xi}_k; \bm{\chi}_k) - \mathcal{T}_\Theta(\bm{z}_k^{\mathrm{enc}}, \bm{u}_k, \bm{\xi}_k; \bm{\chi}_{k|s}^{\mathrm{fr}}).
+\end{aligned}
+\label{eq:innovation}
+\end{equation}
 
-By the fundamental theorem of calculus along the segment from $\hat z_{k\mid s}$ to $z^{E}_k$ with the protected context frozen,
-$\Fuz(z^{E}_k,u_k,\xi_k;\chi^{\mathrm{n}}_{k\mid s})-\Fuz(\hat z_{k\mid s},u_k,\xi_k;\chi^{\mathrm{n}}_{k\mid s})=A_{k\mid s}e_{k\mid s}$ with $A_{k\mid s}$ as in \eqref{eq:segjac}. Adding and subtracting $\Fuz(z^{E}_k,u_k,\xi_k;\chi^{E}_k)$ and using \eqref{eq:residual-def} gives the one-step recursion $e_{k+1\mid s}=A_{k\mid s}e_{k\mid s}+\nu_k+\delta^{\chi}_{k\mid s}$; no fault signal is differentiated because the identity manipulates definitions only. Unrolling from $e_{s\mid s}=0$ yields \eqref{eq:exact-prop}, and stacking rows gives \eqref{eq:stacked}. \hfill$\blacksquare$
+% PLACEHOLDER - Theorem 1
 
-\subsection{Proof Sketch of Proposition~\ref{prop:decomp}}\label{app:decomp}
+\begin{theorem}[Exact start-indexed residual propagation]
+\label{thm:propagation}
+Assume $\mathcal{T}_\Theta$ is continuously differentiable in $\bm{z}$ on the line segment joining $\bm{z}_{k|s}^{\mathrm{fr}}$ and $\bm{z}_k^{\mathrm{enc}}$. Then
+\begin{equation}
+\bm{e}_{k+1|s}^z = \bm{\Gamma}_{k|s} \bm{e}_{k|s}^z + \bm{\nu}_k + \bm{\delta}_{k|s}^\chi,
+\label{eq:recursion}
+\end{equation}
+where
+\begin{equation}
+\bm{\Gamma}_{k|s} = \int_0^1 \bm{\Gamma}_{z,k}(\bm{z}_{k|s}^{\mathrm{fr}} + \tau \bm{e}_{k|s}^z) \, d\tau.
+\label{eq:jacobian_integral}
+\end{equation}
+Consequently,
+\begin{equation}
+\bm{e}_{k|s}^z = \bm{\Phi}(k,s) \bm{e}_{s|s}^z + \sum_{j=s}^{k-1} \bm{\Phi}(k, j+1) (\bm{\nu}_j + \bm{\delta}_{j|s}^\chi),
+\label{eq:propagation}
+\end{equation}
+with $\bm{\Phi}(k,j) = \bm{\Gamma}_{k-1|s} \cdots \bm{\Gamma}_{j|s}$ and $\bm{\Phi}(j,j) = \bm{I}$.
+\end{theorem}
 
-Insert $z^{E}=z^{\ast}+\varepsilon^{\mathrm{e}}$ into the combined forcing of Lemma~\ref{lem:cancel} and expand to first order at $z^{\ast}$: the forcing splits into the ideal-trajectory mismatch and noise $\varepsilon^{\mathrm{m}}_k+\varepsilon^{\mathrm{v}}_k$, the context-drift term $d^{\chi}_k$, the encoder-noise difference $\varepsilon^{\mathrm{e}}_{k+1}-J_z\Fuz(z^{\ast}_k)\,\varepsilon^{\mathrm{e}}_k$, and a Taylor remainder quadratic in $\varepsilon^{\mathrm{e}}$. Propagating through \eqref{eq:stacked} and telescoping $\sum_{j}\Phi(l,j{+}1)\big(\varepsilon^{\mathrm{e}}_{j+1}-A_j\varepsilon^{\mathrm{e}}_j\big)=\varepsilon^{\mathrm{e}}_{l}-\Phi(l,s)\varepsilon^{\mathrm{e}}_{s}+\rho_{l}$ leaves the telescoping defect $\rho_l$, which collects the products $\Phi(l,j{+}1)\big(A_{j\mid s}-J_z\Fuz(z^{\ast}_j)\big)\varepsilon^{\mathrm{e}}_j$; since the segment-averaged and pointwise Jacobians differ by at most $L_{\mathrm{H}}(\norm{e_{j\mid s}}+\norm{\varepsilon^{\mathrm{e}}_j})$, the defect and the Taylor remainder together obey the stated bilinear bound. The signature terms \eqref{eq:signatures} follow by the same first-order expansion of the faulty data branch: actuator faults perturb the applied input at each step and propagate through $\Gnu$; sensor faults perturb the encoder inputs, whose effect telescopes to the direct banded image (plus the buffer path when the fault predates the anchor); process faults perturb the state channel and propagate through $\Gnu$ with unknown per-step injection. The numerical scaling study of Section~\ref{sec:design-verification} confirms both the clean first-order rates and the bilinear floor. \hfill$\blacksquare$
+The proof follows by adding and subtracting the transition evaluated at the encoded state and the rollout context, followed by the integral mean-value identity; details are given in Appendix~A. The term $\bm{\nu}_k$ is the one-step normal-model inconsistency, whereas $\bm{\delta}_{k|s}^\chi$ retains the effect of finite attention memory.
 
-\subsection{Assumption~A5$'$ and Proofs for Section~\ref{sec:method-threshold}}\label{app:threshold}
+\subsection{Fuzzy-Structure-Dependent Normal Propagation}
 
-\emph{Assumption A5$'$ (fault-time nuisance event).} Along the fault-perturbed trajectory up to the decision instant, the fault-free forcing components satisfy $\norm{\varepsilon^{\mathrm{m}}_j+d^{\chi}_j}\le\bar\mu_j+\bar\delta(h_j)$ evaluated at the realized inputs and regimes, and all other fault-time nuisance components lie in the declared tube. This is an independent $H_1$ assumption about model validity off the normal input distribution; Theorem~\ref{thm:far} assigns it no probability.
+For compactness, define $\bm{v}_{i,k} = \bm{A}_i \bm{z}_k + \bm{B}_i \bm{u}_k$ and $\overline{\bm{v}}_k = \sum_i \omega_{i,k} \bm{v}_{i,k}$. From~\eqref{eq:membership},
+\begin{equation}
+\begin{aligned}
+\bm{\gamma}_{i,k}^\rho &:= \nabla_{\bm{\rho}} \varphi_{i,k} = -\bm{\Pi}_i (\bm{\rho}_k - \bm{c}_i), \\
+\overline{\bm{\gamma}}_k^\rho &:= \sum_j \omega_{j,k} \bm{\gamma}_{j,k}^\rho, \\
+\nabla_{\bm{\rho}} \omega_{i,k} &= \omega_{i,k} (\bm{\gamma}_{i,k}^\rho - \overline{\bm{\gamma}}_k^\rho).
+\end{aligned}
+\label{eq:gradient}
+\end{equation}
 
-\emph{Proof of Theorem~\ref{thm:far}.} Once the complete detection pipeline and its state transition are frozen, each calibration superblock and the target normal episode are mapped measurably to one scalar maximum over every selectable time, detection branch, and detection mode. Post-alarm masks and class-specific explanation scores are not coordinates of this detection maximum. Under exchangeability, the target maximum has an exchangeable rank among $n_{\mathrm{cal}}+1$ maxima. The index in \eqref{eq:finite-quantile}, together with the strict exceedance convention, therefore gives
-$\Pr\{\tau^\ast>q^{\mathrm{det}}_{1-\alpha}\}\le\alpha$ \cite{vovk2005}; when the requested rank is $n_{\mathrm{cal}}+1$, the $+\infty$ convention is the only distribution-free finite-sample choice. Every online choice within the episode is dominated by $\tau^\ast$, which proves \eqref{eq:far}; the positive floor in \eqref{eq:gamma-dyn} only shrinks the actual alarm event. The argument does not extend by repeatedly conditioning on the first violating episode. \hfill$\blacksquare$
+% PLACEHOLDER - Theorem 2
 
-\emph{Proof of Corollary~\ref{cor:detect}.} On the declared fault-time nuisance event, the branchwise fault-free content is at most $\gamma^{\mathrm{dyn}}_{c,k}$. By the reverse triangle inequality and the definition of the restricted gain,
-$T_{c,k}\ge\underline s_c\norm{f_0}-\gamma^{\mathrm{dyn}}_{c,k}$.
-The strict condition \eqref{eq:mdf} therefore gives
-$T_{c,k}>\gamma^{\mathrm{dyn}}_{c,k}$. \hfill$\blacksquare$
+\begin{theorem}[Complete fuzzy lifted-state Jacobian]
+\label{thm:jacobian}
+For fixed $\bm{u}_k$, $\bm{\xi}_k$, and $\bm{\chi}_k$, the Jacobian of~\eqref{eq:ts_model} with respect to $\bm{z}$ is
+\begin{equation}
+\bm{\Gamma}_{z,k} = \sum_{i=1}^{m_r} \omega_{i,k} \bm{A}_i + \sum_{i=1}^{m_r} \omega_{i,k} (\bm{v}_{i,k} - \overline{\bm{v}}_k) (\bm{\gamma}_{i,k}^\rho - \overline{\bm{\gamma}}_k^\rho)^\mathrm{T} \bm{W}_z.
+\label{eq:complete_jacobian}
+\end{equation}
+Moreover,
+\begin{equation}
+\|\bm{\Gamma}_{z,k}\|_\infty \leq \kappa_k := \sum_i \omega_{i,k} \|\bm{A}_i\|_\infty + \|\bm{W}_z\|_\infty \sum_i \omega_{i,k} \|\bm{v}_{i,k} - \overline{\bm{v}}_k\|_\infty \|\bm{\gamma}_{i,k}^\rho - \overline{\bm{\gamma}}_k^\rho\|_1.
+\label{eq:bound}
+\end{equation}
+\end{theorem}
 
-\subsection{Proof of Theorem~\ref{thm:iso}}\label{app:iso}
+Equation~\eqref{eq:complete_jacobian} separates the interpolated local dynamics from the change in normalized firing strengths. The second term becomes large only when rules overlap, their local next-state values differ, and the scheduling vector is sensitive in a direction that changes their relative weights. This is the specific role of the fuzzy structure in the reference analysis. The proof and the induced-norm bound are given in Appendix~B.
 
-On $\mathcal E_{\mathrm{sig},\bm c^\star}^{\mathrm{ep}}\cap
-\mathcal E_{\mathrm{nuis},\bm c^\star}^{\mathrm{ep}}$, the true full observation belongs to the explanation set indexed by $c_t^\star$ at every selectable report time, hence $c_t^\star$ belongs to every corresponding set in \eqref{eq:candidate-set}. The union bound gives
-$\Pr_{\bm c^\star}\{\exists t:\,c_t^\star\notin\mathcal C_t^+\}\le
-\delta_{\bm c^\star}+\epsilon_{\bm c^\star}$ whenever both episode budgets exist. If a candidate set is a singleton, every explanation satisfying the declared model has the same time-$t$ class; if it contains two classes, the observed tuple itself is a common feasible observation, so no deterministic single-label rule can be uniformly correct over both explanations. Under $H_0$, $c_t^\star=0$ for all $t$, and a nonnormal singleton requires exclusion of $\mathbb E_0^{\mathrm{attr}}$; because the full normal score was maximized over every selectable hypothetical report time before applying \eqref{eq:finite-quantile}, its episode probability is at most $\beta$. This event argument supplies neither PPV nor a class-conditional $H_1$ error rate. In the linear class-radius special case at one time $t$, the true class remains feasible because its distance from $v+n$ is at most $r_{c_t^\star}$. A fault competitor is infeasible whenever
-$\operatorname{dist}_{\star,k}(v,\mathbb K_c)>r_{c_t^\star}+r_c$, by the reverse triangle inequality. If both radii equal one and the competing minimum not exceeding two is attained, the midpoint construction proves sharpness for the complete symmetric-ball model. The full normal attribution set is excluded directly and is not covered by this unit-ball argument. \hfill$\blacksquare$
+\begin{assumption}[Normal residual forcing]
+\label{as:forcing}
+On a prescribed normal operating domain, known nonnegative values $\overline{\varepsilon}_k$ satisfy
+\begin{equation}
+\|\bm{\nu}_k + \bm{\delta}_{k|s}^\chi\|_\infty \leq \overline{\varepsilon}_k
+\label{eq:forcing_bound}
+\end{equation}
+on the calibrated normal event.
+\end{assumption}
+
+The values in Assumption~\ref{as:forcing} are not claimed as deterministic global bounds obtained from finite data. The structural part of the bound comes from~\eqref{eq:hard_param}--\eqref{eq:bound}; the unresolved normal remainder is calibrated on held-out normal blocks in Section~\ref{sec:detection}.
+
+\begin{corollary}[Finite-horizon normal residual bound]
+\label{cor:bound}
+If $\beta_{s|s} \geq \|\bm{e}_{s|s}^z\|_\infty$ and
+\begin{equation}
+\beta_{k+1|s} = \kappa_k \beta_{k|s} + \overline{\varepsilon}_k,
+\label{eq:beta_recursion}
+\end{equation}
+then $\|\bm{e}_{k|s}^z\|_\infty \leq \beta_{k|s}$ while the trajectory remains in the prescribed normal domain. For an allowed reference tolerance $\overline{\beta}$, a reliable horizon is
+\begin{equation}
+\ell_{\mathrm{ref}}(s) = \max\{\ell : \beta_{s+j|s} \leq \overline{\beta}, \; 1 \leq j \leq \ell\}.
+\label{eq:reliable_horizon}
+\end{equation}
+\end{corollary}
+
+The empirical training counterpart of~\eqref{eq:beta_recursion},
+\begin{equation}
+\mathcal{L}_{\mathrm{nr}} = \sum_s \sum_{\ell=1}^{\ell_{\mathrm{tr}}} \beta_{s+\ell|s}^{\mathrm{emp}},
+\label{eq:loss_nr}
+\end{equation}
+is used only as a normal-reference propagation regularizer. It is not by itself a claim of improved physical fault sensitivity.
+
+\subsection{Structured Basis-Perturbation Residual Learning}
+
+Reducing~\eqref{eq:loss_nr} controls only the normal side of residual separation. To create a diagnostic training signal without physical fault data, define the model-coordinate group set
+\begin{equation}
+\mathbb{G}_b = \{u, y, z\},
+\label{eq:groups}
+\end{equation}
+representing input-, measurement-, and lifted-coordinate perturbations. These groups specify where a perturbation is inserted in the learned architecture; they are not physical actuator, sensor, or process labels.
+
+At a sampled start $s$, select one standard basis vector and signed amplitude $\alpha$. The input branch replaces $\bm{u}_s$ by $\bm{u}_s + \alpha \bm{q}_j^u$ in the model rollout. The measurement branch replaces $\bm{y}_s$ by $\bm{y}_s + \alpha \bm{q}_j^y$ in the current output residual and in subsequent causal histories. The lifted branch uses
+\begin{equation}
+\bm{z}_{s+1}^{(z,j,\alpha)} = \mathcal{T}_\Theta(\bm{z}_s^{\mathrm{enc}}, \bm{u}_s, \bm{\xi}_s; \bm{\chi}_s) + \alpha \bm{q}_j^z.
+\label{eq:lifted_pert}
+\end{equation}
+Thereafter, every branch follows the same frozen model and reference logic as the nominal branch.
+
+For horizon $\ell_b$, stack the branch residuals and subtract the nominal residual stack:
+\begin{equation}
+\Delta\bm{e}_{s,\ell_b}^{g,j,\alpha} = [(\bm{e}_s^{g,j,\alpha} - \bm{e}_s^0)^\mathrm{T} \; \cdots \; (\bm{e}_{s+\ell_b-1}^{g,j,\alpha} - \bm{e}_{s+\ell_b-1}^0)^\mathrm{T}]^\mathrm{T}.
+\label{eq:delta_residual}
+\end{equation}
+
+% PLACEHOLDER - Section III-D continuation
+
+Define the scaled response and its unit-$\ell_1$ pattern by
+\begin{equation}
+\eta_g^{\mathrm{rsp}} = \frac{\|\Delta\bm{e}_{s,\ell_b}^{g,j,\alpha}\|_1}{|\alpha| + \varepsilon_0}, \quad \bm{p}_{g,j,\alpha} = \frac{\Delta\bm{e}_{s,\ell_b}^{g,j,\alpha}}{\|\Delta\bm{e}_{s,\ell_b}^{g,j,\alpha}\|_1 + \varepsilon_0},
+\label{eq:response}
+\end{equation}
+where the absolute value in the numerator is elementwise and $\varepsilon_0 > 0$ is numerical regularization.
+
+The sensitivity and intergroup separation losses are
+\begin{equation}
+\begin{aligned}
+\mathcal{L}_{\mathrm{sen}} &= \sum_{g,j,\alpha} [\overline{\eta}_g - \eta_g^{\mathrm{rsp}}]_+^2, \\
+\mathcal{L}_{\mathrm{iso}} &= \sum_{g \neq \overline{g}} [\eta_{\mathrm{iso}} - \|\bm{p}_{g,j,\alpha} - \bm{p}_{\overline{g},\overline{j},\overline{\alpha}}\|_1]_+^2.
+\end{aligned}
+\label{eq:loss_sens_iso}
+\end{equation}
+The complete objective is
+\begin{equation}
+\mathcal{L} = \mathcal{L}_{\mathrm{pred}} + \lambda_{\mathrm{nr}} \mathcal{L}_{\mathrm{nr}} + \lambda_{\mathrm{sen}} \mathcal{L}_{\mathrm{sen}} + \lambda_{\mathrm{iso}} \mathcal{L}_{\mathrm{iso}} + \lambda_{\mathrm{bal}} \mathcal{L}_{\mathrm{bal}},
+\label{eq:loss_total}
+\end{equation}
+where $\mathcal{L}_{\mathrm{bal}}$ penalizes only rule occupancies below a prescribed minimum; it does not force uniform rule usage. Each mini-batch samples one coordinate from each group, so the additional computation consists of three ordinary forward rollouts and first-order backpropagation. No Hessian, eigendecomposition, singular-value decomposition, matrix inverse, or online optimization is introduced.
+
+\section{Input-Conditioned Detection and Set-Valued Isolation}
+\label{sec:detection}
+
+% PLACEHOLDER - Section IV
+
+\subsection{Input-Conditioned Residual Standardization}
+
+The normal distribution of~\eqref{eq:joint_residual} depends on the realized command, command variation, fuzzy operating region, and reference age. Define
+\begin{equation}
+\begin{aligned}
+\bm{\zeta}_k &= [(\bm{\omega}_k^{0})^\mathrm{T} \; \bm{u}_k^\mathrm{T} \; \bm{\upsilon}_k^\mathrm{T} \; \bm{\xi}_k^\mathrm{T} \; \ell_k^0]^\mathrm{T}, \\
+\bm{\upsilon}_k &= \bm{u}_k - \bm{u}_{k-1},
+\end{aligned}
+\label{eq:descriptor}
+\end{equation}
+where $\bm{\omega}_k^{0}$ contains the firing strengths evaluated along $\bm{z}_k^0$ and its predicted context. For each fuzzy rule, normal training blocks provide a local mean $\bm{\mu}_i(\bm{\zeta}_k)$ and positive elementwise scale $\bm{\sigma}_i(\bm{\zeta}_k)$. Their mixture moments are
+\begin{equation}
+\begin{aligned}
+\bm{\mu}_k &= \sum_i \omega_{i,k}^0 \bm{\mu}_i, \\
+\bm{\sigma}_k^2 &= \sum_i \omega_{i,k}^0 (\bm{\sigma}_i^2 + (\bm{\mu}_i - \bm{\mu}_k)^2 + \varepsilon_\sigma \bm{1}).
+\end{aligned}
+\label{eq:mixture}
+\end{equation}
+The between-rule term in~\eqref{eq:mixture} prevents uncertainty at a rule boundary from being underestimated. Standardization is elementwise:
+\begin{equation}
+\widetilde{\bm{e}}_k = (\bm{e}_k - \bm{\mu}_k) \oslash \bm{\sigma}_k.
+\label{eq:standardization}
+\end{equation}
+
+For each window length $\ell$ in a predeclared finite list, define
+\begin{equation}
+\varsigma_{k,\ell} = \sum_{j=k-\ell+1}^k \|\widetilde{\bm{e}}_j\|_1.
+\label{eq:score}
+\end{equation}
+
+% PLACEHOLDER - Section IV-A threshold
+
+A held-out normal calibration split is partitioned by predeclared fuzzy operating cells and reference-age intervals. Within each cell, nonoverlapping blocks calibrate the upper quantile $\tau_{\mathrm{cal}}(\bm{\zeta}_k, \ell)$. The propagated component from~\eqref{eq:beta_recursion}, after the same elementwise scaling, is denoted by $\tau_{\mathrm{prop}}(\beta_{k|s_k^0}, \ell)$. The online threshold is
+\begin{equation}
+\tau_{k,\ell} = \tau_{\mathrm{cal}}(\bm{\zeta}_k, \ell) + \tau_{\mathrm{prop}}(\beta_{k|s_k^0}, \ell).
+\label{eq:threshold}
+\end{equation}
+
+Thus, the raw normal region changes with the input, input variation, fuzzy region, and reference age. The calibration term controls the unresolved random remainder, whereas the propagation term records reference drift.
+
+The multiscale statistic is
+\begin{equation}
+\varsigma_k^{\max} = \max_{\ell \in \{\ell_1, \ldots, \ell_{\max}\}} \frac{\varsigma_{k,\ell}}{\tau_{k,\ell}}.
+\label{eq:max_score}
+\end{equation}
+Its final decision level is calibrated directly on the maximum score, rather than applying separate uncorrected tests to each window. A finite-sample coverage interpretation requires exchangeable calibration and test blocks within each declared cell; under serial dependence, the stated guarantee is blockwise rather than samplewise~\cite{vovk2005,xu2021}.
+
+\subsection{Sufficient Detection Condition}
+
+The following statement clarifies why normal propagation and structured response learning must be used together.
+
+\begin{proposition}[Residual-space detection]
+\label{prop:detection}
+For a selected window, suppose a normal standardized residual block $\widetilde{\bm{e}}^0$ satisfies $\|\widetilde{\bm{e}}^0\|_1 \leq \tau_{k,\ell}$ on the calibrated normal event. Let a structured perturbation produce the learned response $\Delta\widetilde{\bm{e}}^{g,j,\alpha}$, and suppose the difference between the actual and learned responses is bounded by $\varepsilon_g$. If
+\begin{equation}
+\|\Delta\widetilde{\bm{e}}^{g,j,\alpha}\|_1 > 2\tau_{k,\ell} + \varepsilon_g,
+\label{eq:detection_condition}
+\end{equation}
+then the corresponding residual block exceeds $\tau_{k,\ell}$ on that event.
+\end{proposition}
+
+% PLACEHOLDER - Section IV-B end
+
+The proof is the reverse triangle inequality. If~\eqref{eq:loss_sens_iso} gives $\|\Delta\widetilde{\bm{e}}^{g,j,\alpha}\|_1 \geq \overline{\eta}_g |\alpha|$, a sufficient amplitude condition is
+\begin{equation}
+|\alpha| > \frac{2\tau_{k,\ell} + \varepsilon_g}{\overline{\eta}_g}.
+\label{eq:amplitude}
+\end{equation}
+Equation~\eqref{eq:amplitude} is a residual-model conclusion, not a physical minimum-fault claim. It shows the two controllable factors: reducing normal propagation lowers $\tau_{k,\ell}$, and increasing the structured response raises $\overline{\eta}_g$.
+
+\subsection{Unique-or-Set-Valued Isolation}
+
+After a detection, the observed residual increment is normalized as in~\eqref{eq:response}. For group $g$, let $\delta_g(k)$ be its smallest $\ell_1$ distance to the response patterns stored from training rollouts. The compatible set is
+\begin{equation}
+\mathbb{G}_k^{\mathrm{cmp}} = \{g \in \mathbb{G}_b : \delta_g(k) \leq \tau_{\mathrm{iso}}\}.
+\label{eq:compatible_set}
+\end{equation}
+A unique group is returned only when $\mathbb{G}_k^{\mathrm{cmp}}$ contains one element and the distance to the second-best group exceeds a calibrated ambiguity margin.
+
+\begin{proposition}[Sufficient group separation]
+\label{prop:separation}
+Suppose the observed normalized response lies within $\delta_{\mathrm{obs}}$ of a stored pattern from its generating group. If every pattern from a different group is at an $\ell_1$ distance greater than $2\delta_{\mathrm{obs}}$ from that pattern, nearest-pattern classification returns the generating group.
+\end{proposition}
+
+The result follows from the triangle inequality. When its premise is not satisfied,~\eqref{eq:compatible_set} is the appropriate output. The labels $u$, $y$, and $z$ indicate compatibility with an insertion location in the learned model. Without an independently verified mapping, they must not be renamed as unique actuator, sensor, or process faults.
+
+% PLACEHOLDER - Section IV-D
+
+\subsection{Offline and Online Algorithms}
+
+Training, calibration, and testing use disjoint normal trajectory blocks. Algorithm~\ref{alg:offline} summarizes the offline procedure.
+
+\begin{algorithm}
+\caption{Normal-Data Offline Design}
+\label{alg:offline}
+\begin{algorithmic}[1]
+\REQUIRE Disjoint normal training and calibration blocks
+\STATE Train $\mathcal{H}_\Theta$, $\mathcal{T}_\Theta$, and $\mathcal{D}_\Theta$ by free rollouts using~\eqref{eq:loss_pred}.
+\STATE Apply~\eqref{eq:param_metric} and~\eqref{eq:hard_param}; compute~\eqref{eq:bound} and~\eqref{eq:loss_nr}.
+\STATE Sample one coordinate from each group in~\eqref{eq:groups}; optimize~\eqref{eq:loss_total} with ordinary forward branches.
+\STATE Freeze all model and fuzzy-rule parameters.
+\STATE Estimate~\eqref{eq:mixture} and calibrate~\eqref{eq:threshold} on held-out nonoverlapping normal blocks.
+\STATE Store response patterns and calibrate the ambiguity margin for~\eqref{eq:compatible_set}.
+\end{algorithmic}
+\end{algorithm}
+
+Online, the encoder continuously reads the strictly past history, while the normal reference either advances from its accepted anchor or waits for delayed reconfirmation. Algorithm~\ref{alg:online} gives the decision loop.
+
+\begin{algorithm}
+\caption{Online Monitoring}
+\label{alg:online}
+\begin{algorithmic}[1]
+\REQUIRE Frozen model, normal statistics, thresholds, and response patterns
+\FOR{each sample $k$}
+\STATE Compute $\bm{z}_k^{\mathrm{enc}}$ and $\bm{e}_k^y$ from the data branch.
+\STATE Propagate the short rollout and the measurement-decoupled reference.
+\STATE Form $\bm{e}_k$ by~\eqref{eq:joint_residual} and $\bm{\zeta}_k$ by~\eqref{eq:descriptor}.
+\STATE Compute~\eqref{eq:standardization}--\eqref{eq:max_score}.
+\IF{$\varsigma_k^{\max}$ exceeds its calibrated decision level}
+\STATE Freeze anchor acceptance and report an alarm.
+\STATE Return $\mathbb{G}_k^{\mathrm{cmp}}$ by~\eqref{eq:compatible_set}.
+\ELSE
+\STATE Continue delay-confirmed anchor management.
+\ENDIF
+\STATE After an alarm, wait $\ell_h$ samples and repeat delay confirmation before accepting a new anchor.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+% PLACEHOLDER - Section IV end
+
+The online stage performs encoder and model forward passes, elementwise standardization, vector norms, and table or lightweight-head evaluations. It does not update fuzzy centers, metrics, network weights, or thresholds.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper formulated normal-data-only nonlinear monitoring as three aligned problems: preventing new measurements from updating a normal reference, controlling the resulting free-rollout drift, and making residual-space decisions without physical fault priors. A measurement-decoupled attention--Koopman--T--S reference and a start-indexed residual resolved the training--testing mismatch. The complete fuzzy Jacobian then linked normal propagation to local dynamics, rule overlap, local-model disparity, and scheduling sensitivity through an implementable infinity-norm bound. Structured model-coordinate perturbations complemented the normal propagation objective by increasing residual response and intergroup separation. Finally, input-, fuzzy-region-, and reference-age-conditioned standardization produced a dynamic decision rule with residual-space detection and set-valued isolation conditions. The method does not claim unique physical fault identification: such a claim requires additional actuation measurements, fault-channel knowledge, or a verified mapping from lifted coordinates to physical components.
+
+\appendix
+
+\section{Proof of Theorem~\ref{thm:propagation}}
+\label{app:proof1}
+
+From~\eqref{eq:lifted_residual}, add and subtract $\mathcal{T}_\Theta(\bm{z}_k^{\mathrm{enc}}, \bm{u}_k, \bm{\xi}_k; \bm{\chi}_{k|s}^{\mathrm{fr}})$ and then $\mathcal{T}_\Theta(\bm{z}_k^{\mathrm{enc}}, \bm{u}_k, \bm{\xi}_k; \bm{\chi}_k)$. The last difference is $\bm{\nu}_k$, and the context difference is $\bm{\delta}_{k|s}^\chi$. The remaining state difference equals~\eqref{eq:jacobian_integral} $\bm{e}_{k|s}^z$ by the integral mean-value identity. This proves~\eqref{eq:recursion}. Repeated substitution gives~\eqref{eq:propagation}.
+
+\section{Proof of Theorem~\ref{thm:jacobian}}
+\label{app:proof2}
+
+Differentiate $\mathcal{T}_\Theta = \sum_i \omega_i \bm{v}_i$. Since $\partial \bm{v}_i / \partial \bm{z} = \bm{A}_i$ and $\partial \bm{\rho} / \partial \bm{z} = \bm{W}_z$,
+\begin{equation}
+\bm{\Gamma}_{z,k} = \sum_i \omega_{i,k} \bm{A}_i + \sum_i \bm{v}_{i,k} (\nabla_{\bm{\rho}} \omega_{i,k})^\mathrm{T} \bm{W}_z.
+\end{equation}
+Substitution of~\eqref{eq:gradient}, together with $\sum_i \omega_i (\nabla \varphi_i - \sum_j \omega_j \nabla \varphi_j) = 0$, permits replacing $\bm{v}_{i,k}$ by $\bm{v}_{i,k} - \overline{\bm{v}}_k$, which yields~\eqref{eq:complete_jacobian}. For vectors $\bm{a}$ and $\bm{b}$, $\|\bm{a}\bm{b}^\mathrm{T}\|_\infty = \|\bm{a}\|_\infty \|\bm{b}\|_1$. The triangle inequality and submultiplicativity then give~\eqref{eq:bound}.
+
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
