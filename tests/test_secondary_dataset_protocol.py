@@ -291,7 +291,7 @@ def test_tts_development_config_is_strict_and_binds_the_primary_cstr_protocol() 
         resolve_frozen_evaluation_config(
             ROOT / "configs" / "paper" / "cstr_frozen.yaml"
         ).config_hash
-        == "1a3e52edbd96093e"
+        == "c6e6b28bc257d831"
     )
     resolved = resolve_frozen_evaluation_config(TTS_DEVELOPMENT_CONFIG)
     config = resolved.config
@@ -306,11 +306,11 @@ def test_tts_development_config_is_strict_and_binds_the_primary_cstr_protocol() 
     assert config.primary_protocol_lock.dataset_name == "cstr_closed_loop_fd"
     assert (
         config.primary_protocol_lock.frozen_config_commit
-        == "1c3849aed974cafc1bfeab8aa9e204929378a98e"
+        == "42d60f3f89a551ad34246d7d606c2da61f5f7445"
     )
     assert (
         config.primary_protocol_lock.frozen_config_sha256
-        == "adc848e3e8d0b60f1f68d8378ef42f6983d6ad00c680c50d2b21ba70f78a2a34"
+        == "9781db95233f992c2bff426ea4f217a8e423bb7372a963d1d8eeec077bb9490c"
     )
     assert (
         config.primary_protocol_lock.selection_status
