@@ -230,6 +230,16 @@ LaTeX 编译、未定义引用、超宽行和 PDF 页面。若正文表达仍需
   范围边界，并在回收后审查实际 diff。
 - 若指定模型、`max` effort 或 Claude Code 本身不可用，应停止正文写入并报告阻塞，不得由
   Codex 接管正文语言写作。
+- Claude Code 正文写作默认必须在当前仓库根目录直接执行非交互命令 `claude -p`，不得默认
+  使用 `--bg`，不得创建、切换或复用任何 Git worktree，也不得为了正文写作创建分支、提交、
+  推送或 Pull Request。只有用户在当前任务中明确要求独立 worktree 时，Codex 才可采用该
+  方式；即使采用，也必须先说明目标路径和 Git 影响。
+- 正文委托提示必须明确禁止 Claude 执行 `git`、`gh`、提交、推送、Pull Request、网络操作
+  和授权范围外的文件修改。Codex 回收正文后应检查 `git status`、工作树列表和实际差异；
+  一旦发现越界操作，立即停止后续写作，先清理任务产生的 Git/工作树状态并向用户说明。
+- 当用户明确宣布现有正文已弃用并要求依据指定权威原文完整重写时，目标正文必须从空文件
+  开始新写。不得从 Git 历史、旧 `main.tex`、Claude 会话缓存、历史分支或 worktree 草稿
+  恢复、复制、改写或拼接内容；旧稿只能在用户重新明确授权后作为证据使用。
 
 ```bash
 # 交互启动
@@ -241,7 +251,7 @@ claude -p --dangerously-skip-permissions --model claude-opus-5 --effort max "任
 # 指定写作代理
 claude -p --agent <代理名> --dangerously-skip-permissions --model claude-opus-5 --effort max "任务描述"
 
-# 后台执行
+# 后台执行（仅当用户在当前任务中明确要求 worktree/后台代理时）
 claude --bg --name "任务名称" --dangerously-skip-permissions --model claude-opus-5 --effort max "任务描述"
 
 # 查看后台状态
