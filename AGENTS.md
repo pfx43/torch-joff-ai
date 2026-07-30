@@ -12,12 +12,16 @@
 进入仓库后按以下优先级读取：
 
 1. `docs/01-文档导航.md`：项目文档的唯一入口。
-2. `MANUSCRIPT_CONTEXT.md`：英文论文的项目级写作上下文；处理 `paper/` 前必须整读。
-3. `docs/03-当前工作记录.md`：当前阶段、阻塞、验证结果和近期决策。
-4. `docs/04-技术架构.md`：运行时分层、调用链、扩展接口和架构不变量。
-5. `docs/05-目录结构与文件数.md`：仓库目录、核心文件地图、文件统计口径和源码阅读顺序。
+2. `docs/03-当前工作记录.md`：当前阶段、理论状态、职责边界、阻塞、验证结果和近期决策。
+3. `docs/06-论文代码实施计划.md`：最新版方法的计划接口、阶段、测试和停止条件。
+4. `docs/07-论文实验线详细说明.md`：实验矩阵、指标、科研图和运行顺序。
+5. `docs/04-技术架构.md`：运行时分层、调用链、扩展接口和架构不变量。
+6. `docs/05-目录结构与文件数.md`：仓库目录、核心文件地图、文件统计口径和源码阅读顺序。
 
-`docs/旧文档/` 是被新方案取代或归档的历史材料，不是当前实现规格。需要追溯旧推导时可读取，但不得用它覆盖 `MANUSCRIPT_CONTEXT.md`、`paper/main.tex` 或最新工作记录中的决策。
+老师最新版原始 PDF 是当前理论与实验需求的最新输入，具体路径和状态以
+`docs/01-文档导航.md`、`docs/03-当前工作记录.md` 为准。`paper/main.tex` 仍是尚未与老师
+最新版同步的旧英文内部稿，不得用它覆盖最新版输入。`docs/旧文档/` 是被新方案取代或归档
+的历史材料，不是当前实现规格。
 
 项目文档使用中文；`docs/` 下 Markdown 使用中文文件名。根级标准文件（如 `README.md`、`AGENTS.md`）保留标准英文名。
 
@@ -108,9 +112,14 @@ Calibration Protocol 一致，不能把故障测试混写成正常数据第五�
 interval/verified-quadrature 与 full nonlinear 认证 provider。任一条件未满足时，
 development-only runtime 都不得创建正式 manifest/claim 或读取冻结故障值。
 
-老师稿的两处 critical 修正已经进入当前英文方案但仍需导师最终确认：推论 1 使用可观测超额得分校准；隔离层使用堆叠受保护多步残差与加权响应矩阵配对。最新边界以 `MANUSCRIPT_CONTEXT.md` 和 `paper/main.tex` 为准。
+老师稿的两处 critical 修正已经进入旧英文方案但仍需导师最终确认：推论 1 使用可观测
+超额得分校准；隔离层使用堆叠受保护多步残差与加权响应矩阵配对。最新版输入、当前理论状态
+和实验实现边界以老师最新版 PDF、`docs/03-当前工作记录.md`、`docs/06-论文代码实施计划.md`
+和 `docs/07-论文实验线详细说明.md` 为准。
 
-不得把 smoke、占位符或未冻结结果写成论文实验结论；不得宣称当前方法已完整实现、理论已饱和或结果可投稿。`MANUSCRIPT_CONTEXT.md` 记录的 `Pause / Not theoretically saturated` 状态在新证据出现前保持有效。
+不得把 smoke、占位符或未冻结结果写成论文实验结论；不得宣称当前方法已完整实现、理论已
+饱和或结果可投稿。`docs/03-当前工作记录.md` 记录的
+`Pause / Not theoretically saturated` 状态在新证据出现前保持有效。
 
 ## 5. 数据集与产物边界
 
@@ -121,9 +130,11 @@ development-only runtime 都不得创建正式 manifest/claim 或读取冻结故
 
 ## 6. 论文写作与交付
 
-- 当前正式稿为英文 `paper/main.tex`，参考文献为 `paper/refs.bib`，体例为 IEEEtran 双栏、IEEE TFS 风格。
-- 处理英文稿前必须按 `idea-review-and-paper-writing` 技能的 Stage 2 要求整读
-  `MANUSCRIPT_CONTEXT.md`。
+- 当前英文源稿为 `paper/main.tex`，参考文献为 `paper/refs.bib`，体例为 IEEEtran 双栏、
+  IEEE TFS 风格；该源稿仍是尚未与老师最新版同步的旧内部稿。
+- 处理英文稿前必须按 `idea-review-and-paper-writing` 技能的 Stage 2 要求读取老师最新版
+  PDF、`docs/03-当前工作记录.md`、`docs/06-论文代码实施计划.md` 和
+  `docs/07-论文实验线详细说明.md` 中与目标段落相关的内容。
 - 实验节允许完整协议和明确占位符，不允许编造数值、硬件条件、统计显著性或已完成验证。
 - 修改 LaTeX 后必须本地编译；交付前检查错误、未定义引用、超宽行并逐页目检 PDF。若环境阻塞，应报告阻塞和未完成的检查。
 - 编辑 `.tex` 应使用能保真反斜杠的文件编辑工具，避免 shell heredoc；中文材料使用全角中文引号，避免 ASCII 直引号造成排版错误。
@@ -150,6 +161,97 @@ development-only runtime 都不得创建正式 manifest/claim 或读取冻结故
 Zotero 服务配置在 `.mcp.json`（Claude Code）和 `~/.codex/config.toml`（Codex）。本地读取需要 Zotero 客户端运行、允许其他应用通信，并使用 `ZOTERO_LOCAL=true`；Web API 写入依赖用户级环境变量 `ZOTERO_API_KEY` 与 `ZOTERO_LIBRARY_ID`。`SEMANTIC_SCHOLAR_API_KEY` 可提高检索限额。所有密钥只放系统环境变量，绝不写入仓库、日志、事项或文档。
 
 ## 8. Agent 协作约定
+
+### 主代理与论文正文写作代理（强制）
+
+#### 1. Codex 是唯一主代理
+
+- Codex 负责接收和澄清任务、判断是否应进入论文、划定范围、组织证据、识别证据等级、
+  维护主张边界、拆分和统筹任务、调度 Claude Code、审核交付并向用户说明结果。
+- 除论文正文语言写作外，仓库内任务均由 Codex 负责，包括代码、测试、实验、数据协议、
+  科研图生成流程、配置、文档、事项追踪、文献检索与 Zotero 入库、`paper/refs.bib`、
+  LaTeX 工程检查、产物审计和 Git。
+- Claude Code 不直接接收仓库级统筹权。它不得自行修改代码、配置、数据、项目文档、
+  事项、参考文献库或 Git 状态；发现这些区域需要变化时，只能在交付说明中向 Codex 建议。
+
+#### 2. Codex 不得改写论文正文语言
+
+- `paper/main.tex` 及其通过 `\input`、`\include` 等命令纳入的正文文件中，凡是会改变读者
+  看到的语言表达、论证结构或学术含义的内容，Codex 都不得直接新增、删除、改写、润色、
+  翻译、压缩、扩写或重排。
+- 该禁令覆盖标题、摘要、关键词、章节正文、贡献陈述、相关工作、方法解释、定理与证明的
+  文字、实验分析、结论、图题、表题、脚注、表格中的叙述性文字，以及会改变数学或算法
+  含义的公式、假设、伪代码和结论。错别字或一两句小修也不构成例外。
+- Codex 只可修复不改变可见语言和学术语义的 LaTeX 工程错误，例如花括号或环境不配对、
+  命令参数错误、标签与交叉引用断裂、已核验 BibTeX key 的引用命令错误、宏或包的加载
+  问题、浮动体和表格的纯排版故障、编译失败、未定义引用和超宽行的工程性原因。
+- 若修复方案可能改变措辞、公式含义、算法步骤、数值结论或主张强度，必须停止直接编辑，
+  转为 Claude 正文委托或交由用户/理论负责人裁决。Codex 可以指出问题并准备修订证据，但
+  不能借“质量审核”之名直接替 Claude 改正文。
+
+#### 3. Claude Code 只负责已授权的正文写作
+
+- 只有用户明确要求撰写或修改论文正文，并确认目标文件或章节范围后，Codex 才能调度
+  Claude Code。新章节或大范围重写必须先由 Codex 确认归属、目标、证据和不可越界项。
+- Claude 可以在已授权范围内独立决定论证切口、段落结构、例子、措辞和必要的小节重组，
+  但只能使用证据包中已提供或可在 Zotero 中核验的事实与文献，不得编造引用、数值、硬件
+  条件、统计显著性、已完成实验或理论保证。
+- Claude 不得自主扩大到未授权章节，不得新建平行论文页面，不得修改
+  `paper/refs.bib`、项目文档、代码、配置、数据、事项或 Git。需要新引用时，只报告候选
+  及理由，由 Codex 完成检索、Zotero 入库、核验和 BibTeX 导出后再继续写作。
+
+#### 4. 正文委托和回收
+
+Codex 给 Claude 的委托必须是“写作命题 + 证据包 + 不可越界项 + 可自由探索项”，至少包含：
+
+- 目标文件、允许修改的章节或行区间，以及要回答的读者问题；
+- 可用事实、公式、实验结果、引用 key 及各自证据等级；
+- 必须保留的限定条件、不可声称事项和不得触碰的文件/章节；
+- 允许 Claude 重组的范围，以及验收标准。
+
+Claude 交付后，Codex 必须检查差异范围、事实与引用、证据边界、与最新版输入的一致性、
+LaTeX 编译、未定义引用、超宽行和 PDF 页面。若正文表达仍需修改，Codex 应把问题和证据
+退回 Claude 继续修订，不得亲自改写后交付。
+
+#### 5. 新见解的处理
+
+- Claude 在已授权范围内发现更好的表达或论证，可以直接融入。
+- 若新见解要求新增章节、跨章节回写、改变已确认结论、扩大主张、改变实验实现，或证据
+  仍不足，Claude 必须在交付说明中单列“建议与理由”，交回 Codex 与用户裁决，不能静默
+  扩张论文或项目范围。
+- Codex 负责判断该建议应进入正文委托、理论负责人确认、实验任务、项目文档还是事项
+  追踪器，并保持正文、证据和实现状态一致。
+
+#### 6. Claude Code 固定调度参数
+
+- 除非用户明确指定其他参数，所有 Claude Code 写作调用必须显式使用
+  `--model claude-opus-5 --effort max`，不得省略、静默降级或改用其他模型。
+- 当前仓库允许使用 `--dangerously-skip-permissions`，但 Codex 仍必须在提示中明确文件和
+  范围边界，并在回收后审查实际 diff。
+- 若指定模型、`max` effort 或 Claude Code 本身不可用，应停止正文写入并报告阻塞，不得由
+  Codex 接管正文语言写作。
+
+```bash
+# 交互启动
+claude --dangerously-skip-permissions --model claude-opus-5 --effort max
+
+# 非交互写入
+claude -p --dangerously-skip-permissions --model claude-opus-5 --effort max "任务描述"
+
+# 指定写作代理
+claude -p --agent <代理名> --dangerously-skip-permissions --model claude-opus-5 --effort max "任务描述"
+
+# 后台执行
+claude --bg --name "任务名称" --dangerously-skip-permissions --model claude-opus-5 --effort max "任务描述"
+
+# 查看后台状态
+claude agents
+claude agents --json
+
+# 续接当前目录最近会话或指定会话
+claude -c --dangerously-skip-permissions --model claude-opus-5 --effort max
+claude -r <会话ID> --dangerously-skip-permissions --model claude-opus-5 --effort max
+```
 
 ### Git 提交信息（强制）
 
