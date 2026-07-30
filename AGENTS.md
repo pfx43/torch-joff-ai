@@ -47,7 +47,7 @@ latexmk -cd -pdf -interaction=nonstopmode -file-line-error -halt-on-error paper/
 pwsh docs/旧文档/编译PDF.ps1
 ```
 
-截至 2026-07-28，pytest 可收集 9 个测试文件、128 个测试；这只是收集结果，不代表全套测试已经通过。执行验证后只报告实际运行过的范围。MiKTeX 若报 `Support package 'expl3' too old`，先执行 `mpm --update`；若首次安装设置未完成，不得声称 PDF 已重新编译或目检。
+截至 2026-07-30，pytest 可从 21 个测试文件收集 305 个测试；这只是收集结果，不代表全套测试已经通过。执行验证后只报告实际运行过的范围。MiKTeX 若报 `Support package 'expl3' too old`，先执行 `mpm --update`；若首次安装设置未完成，不得声称 PDF 已重新编译或目检。
 
 ## 3. 运行时架构与不变量
 
@@ -98,6 +98,11 @@ Calibration Protocol 一致，不能把故障测试混写成正常数据第五�
   hash、本地模型 hash 和完整第三方 notice 已进入数据卡和公共 adapter 来源摘要；
 - 上述证据只覆盖上游模型，仓库内 normal/fault MAT 的生成链和再分发许可仍为
   `to_verify`，不得把模型许可扩张为数据许可。
+- paper development/frozen 配置必须绑定精确的数据集卡 SHA-256；入口还会交叉核对卡片中的
+  raw 路径、许可状态和原始文件 SHA-256。未来把许可改为 `verified` 时，卡片必须同时绑定
+  已存在且 hash 匹配的 MAT 生成记录和许可证据。仅修改配置或卡片状态不能解锁数据访问；
+  卡片与证据只能位于仓库或声明的数据根，normal/fault 子路径不得逃离数据根。软件校验
+  只能固定证据身份和路径边界，不能替代人工法律与所有权审查。
 
 当前 formal 同时受两类门禁阻塞：本地 MAT 生成/许可链尚未核实，以及仓库没有真实
 interval/verified-quadrature 与 full nonlinear 认证 provider。任一条件未满足时，

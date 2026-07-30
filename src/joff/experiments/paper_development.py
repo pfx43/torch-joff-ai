@@ -4,9 +4,10 @@
     消除 CSTR/TTS development YAML 与正常产物之间的手工拼装步骤；只使用已核验许可
     的正常 MAT，按 P2 五阶段边界训练 P4 模型并生成 P5--P9 正常证据。
 主要职责：
-    严格解析开发配置、验证正常文件身份、构造滑窗训练批、执行确定性 CPU 训练、拟合
-    estimate-only 缩放/包络/协方差、两次独立校准、checkpoint evaluator envelope 和
-    frozen-normal 重放，并冻结 fit access ledger；TTS 运行开始前还要复验 CSTR 主配置锁。
+    严格解析开发配置、复验数据卡身份与许可、验证正常文件身份、构造滑窗训练批、执行
+    确定性 CPU 训练、拟合 estimate-only 缩放/包络/协方差、两次独立校准、checkpoint
+    evaluator envelope 和 frozen-normal 重放，并冻结 fit access ledger；TTS 运行开始前
+    还要复验 CSTR 主配置锁。
 关键输入与输出：
     输入是 ``ResolvedFrozenEvaluationConfig`` 的 development 模式和单个正常 MAT；
     输出是 ``PaperNormalArtifactsConfig`` 指定的 20 个文件，以及同目录 P2 bundle 摘要。
@@ -15,9 +16,10 @@
     ``artifact_root/run_name`` 内独占创建文件并执行 CPU 训练；不读取 fault MAT，不创建
     frozen manifest/claim，也不访问网络。
 重要约束：
-    数据许可和正常源 hash 必须先核实；所有拟合访问都通过 ``PaperDataBundle.data_for_fit``
-    登记。TTS 必须先由真实 P10 formal manifest 证明 CSTR 正式冻结评价已完成，否则在
-    数据/输出 I/O 前关闭。TTS/TE 结果不得回写 CSTR 选择。当前没有认证 provider，因此
+    数据卡 hash、数据许可和正常源 hash 必须先核实；所有拟合访问都通过
+    ``PaperDataBundle.data_for_fit`` 登记。TTS 必须先由真实 P10 formal manifest 证明
+    CSTR 正式冻结评价已完成，否则在数据/输出 I/O 前关闭。TTS/TE 结果不得回写 CSTR
+    选择。当前没有认证 provider，因此
     operator/signature/nuisance 明确写为不可用，checkpoint evaluator 标为
     development-only；该运行不能作为论文故障性能结果。
 """
@@ -95,7 +97,7 @@ def run_paper_normal_development(
     返回：
         已写完并冻结账本的 ``PaperDevelopmentResult``。
     异常：
-        模式/许可/hash/shape/训练/校准或目标文件边界非法时抛出 ``ValueError``、
+        模式/数据卡/许可/hash/shape/训练/校准或目标文件边界非法时抛出 ``ValueError``、
         ``FrozenProtocolIntegrityError``、``FileExistsError`` 或底层 I/O 异常。
     副作用：
         读取一个正常 MAT；在受限运行目录中独占写产物并执行 CPU 训练。不读取 fault
@@ -112,6 +114,12 @@ def run_paper_normal_development(
         raise ValueError("Development parameters and normal_artifacts are required.")
     root = Path(repo_root).expanduser().resolve()
     _validate_primary_protocol_lock(resolved, root=root)
+    card_errors = config.dataset.dataset_card_readiness_errors(repo_root=root)
+    if card_errors:
+        raise FrozenProtocolIntegrityError(
+            "Normal paper development dataset card is not ready: "
+            + "; ".join(card_errors)
+        )
     if config.dataset.license_status != "verified":
         raise FrozenProtocolIntegrityError(
             "Normal paper development requires dataset license_status='verified'."

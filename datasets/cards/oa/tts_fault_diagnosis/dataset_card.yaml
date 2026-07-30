@@ -1,7 +1,7 @@
 name: tts_fault_diagnosis
 version: real-v1
 description: Three-tank-system seven-variable, six-fault diagnosis dataset.
-access: {tag: oa, disclosure: open_access, license: to_verify}
+access: {tag: oa, disclosure: open_access, license: to_verify, license_status: to_verify}
 adapter: TTSFaultDiagnosisAdapter
 files:
   root: ../../../raw/oa/TTS/fe
@@ -9,7 +9,16 @@ files:
   test: test/[test].mat
   description: 7v+6f 正序, 6c 故障.txt
 source:
-  license_status: to_verify
+  local_mat:
+    provenance_status: to_verify
+    license_status: to_verify
+    reason: local_mat_generation_chain_not_documented
+    normal_sha256: 32b67b5b5929fae2d7002b2ee42dae727926912435904ca6d2a2181634714ed8
+    fault_sha256: null
+    generation_record: null
+    generation_record_sha256: null
+    license_evidence: null
+    license_evidence_sha256: null
 protocol:
   fault_onset: 200
   stored_feature_indices: [0, 1, 2, 3, 4, 5, 6]

@@ -5,16 +5,17 @@
     防止次级数据集开发、未核实许可或宽松字典误入正式故障入口。
 主要职责：
     定义嵌套 Pydantic 严格配置、保留 resolved config/provenance/16 位 hash，并以只读检查
-    报告 frozen 模式的许可、原始文件 hash 和 P2--P9 正常产物是否就绪；P11 次级开发
-    额外声明保存 CSTR frozen 配置 blob 的提交、配置和正式 manifest/bundle 身份。本文件
-    不训练模型、不加载 MAT 数值、不创建 manifest。
+    报告 frozen 模式的数据卡身份、许可、原始文件 hash 和 P2--P9 正常产物是否就绪；
+    P11 次级开发额外声明保存 CSTR frozen 配置 blob 的提交、配置和正式 manifest/bundle
+    身份。本文件不训练模型、不加载 MAT 数值、不创建 manifest。
 关键输入与输出：
     输入为 ``configs/paper/*.yaml``、等价映射或已经校验的配置；输出为
     ``ResolvedFrozenEvaluationConfig`` 和稳定的 readiness error 列表。
 依赖与副作用：
     依赖 PyYAML、Pydantic、Joff ``StrictConfig`` 和标准库。解析 YAML 只读一个配置文件；
-    readiness 在许可为 ``verified`` 时才可流式核对声明的 raw file SHA-256，并检查正常
-    产物路径是否存在。模块导入和普通解析均不读数据、写文件或修改随机状态。
+    readiness 先只读并核对已冻结的数据卡 SHA-256；仅当数据卡身份和许可均通过时才可
+    流式核对声明的 raw file SHA-256，并检查正常产物路径是否存在。模块导入和普通解析
+    均不读数据、写文件或修改随机状态。
 重要约束：
     所有未知字段都拒绝；理论敏感风险、种子、episode 长度和 onset 没有隐藏默认值。
     ``to_verify`` 必须作为阻塞事实保留，不能被布尔转换误当成授权。readiness 只报告状态，
@@ -85,6 +86,7 @@ class PaperEvaluationDatasetConfig(StrictConfig):
 
     参数：
         name/root/normal_file/fault_file: synthetic、真实闭环 CSTR 或 TTS 的路径身份。
+        dataset_card/dataset_card_sha256: 真实数据公开卡片的仓库路径与冻结文件身份。
         license_status: 许可事实；只有 ``verified`` 可进入正式 manifest。
         feature_count/normal_rows/fault_episode_count/fault_episode_rows/fault_onset: 冻结几何。
         normal_source_hash/fault_source_hash: 可选 raw SHA-256；正式 readiness 必须存在。
@@ -101,6 +103,8 @@ class PaperEvaluationDatasetConfig(StrictConfig):
     root: Path | None
     normal_file: Path | None
     fault_file: Path | None
+    dataset_card: Path | None
+    dataset_card_sha256: str | None
     license_status: Literal[
         "synthetic_only",
         "to_verify",
@@ -116,7 +120,11 @@ class PaperEvaluationDatasetConfig(StrictConfig):
     normal_source_hash: str | None
     fault_source_hash: str | None
 
-    @field_validator("normal_source_hash", "fault_source_hash")
+    @field_validator(
+        "normal_source_hash",
+        "fault_source_hash",
+        "dataset_card_sha256",
+    )
     @classmethod
     def _validate_optional_sha256(cls, value: str | None) -> str | None:
         """校验显式 raw hash；``None`` 只允许留给 smoke/development readiness。"""
@@ -140,14 +148,272 @@ class PaperEvaluationDatasetConfig(StrictConfig):
         if self.name == "synthetic_cstr":
             if self.license_status != "synthetic_only":
                 raise ValueError("Synthetic CSTR must use license_status='synthetic_only'.")
-            if self.root is not None or self.normal_file is not None or self.fault_file is not None:
+            if (
+                self.root is not None
+                or self.normal_file is not None
+                or self.fault_file is not None
+                or self.dataset_card is not None
+                or self.dataset_card_sha256 is not None
+            ):
                 raise ValueError("Synthetic CSTR must not declare real data paths.")
         else:
-            if self.root is None or self.normal_file is None or self.fault_file is None:
+            if (
+                self.root is None
+                or self.normal_file is None
+                or self.fault_file is None
+                or self.dataset_card is None
+                or self.dataset_card_sha256 is None
+            ):
                 raise ValueError(
-                    "Real paper dataset config requires root, normal_file and fault_file."
+                    "Real paper dataset config requires root, normal_file, fault_file, "
+                    "dataset_card and dataset_card_sha256."
                 )
         return self
+
+    def dataset_card_readiness_errors(
+        self,
+        *,
+        repo_root: str | Path,
+    ) -> tuple[str, ...]:
+        """只读复验真实数据卡的冻结 SHA-256、数据路径和许可证据。
+
+        参数：
+            repo_root: 配置相对路径的解析根目录。
+        返回：
+            稳定错误元组；synthetic 数据无需卡片并返回空元组。真实数据只有在卡片存在、
+            SHA-256 精确匹配，名称、raw 路径和许可状态与入口配置一致，并且 ``verified``
+            状态绑定真实生成记录与许可文件时才返回空元组。
+        异常：
+            路径和文件读取错误被转成 readiness error，不向调用方传播。
+        副作用：
+            只读取并解析数据卡；不读取 MAT、不写文件。
+        """
+
+        return _DatasetCardReadinessValidator(
+            dataset=self,
+            repo_root=Path(repo_root).expanduser().resolve(),
+        ).validate()
+
+
+@dataclass(frozen=True)
+class _LoadedDatasetCard:
+    """保存通过文件身份检查后的卡片及其两个授权路径根。
+
+    ``configured_root`` 是 raw 文件唯一根；``allowed_roots`` 同时包含仓库根和 raw 根，
+    供卡片、生成记录与许可证据执行解析后 containment 检查。
+    """
+
+    card_path: Path
+    configured_root: Path
+    allowed_roots: tuple[Path, ...]
+    payload: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class _DatasetCardReadinessValidator:
+    """分层复验数据集卡身份、路径合同、许可状态和证据 hash。
+
+    该对象只读文件，不加载 MAT。所有路径都先 ``resolve`` 再做 containment，因而绝对路径、
+    ``..`` 和指向边界外的可解析符号链接共享同一失败路径。
+    """
+
+    dataset: PaperEvaluationDatasetConfig
+    repo_root: Path
+
+    def validate(self) -> tuple[str, ...]:
+        """按身份、路径、许可、证据顺序返回稳定错误，前层失败时不访问后层文件。"""
+
+        if self.dataset.name == "synthetic_cstr":
+            return ()
+        loaded_or_errors = self._load_card()
+        if isinstance(loaded_or_errors, tuple):
+            return loaded_or_errors
+        loaded = loaded_or_errors
+        contract_errors = self._validate_card_contract(loaded)
+        if contract_errors:
+            return contract_errors
+        license_error = self._validate_license_status(loaded.payload)
+        if license_error is not None:
+            return (license_error,)
+        if self.dataset.license_status != "verified":
+            return ()
+        return self._validate_verified_evidence(loaded)
+
+    def _load_card(self) -> _LoadedDatasetCard | tuple[str, ...]:
+        """在解析 YAML 前验证卡片路径边界、存在性和冻结 SHA-256。"""
+
+        if self.dataset.dataset_card is None or self.dataset.dataset_card_sha256 is None:
+            return ("dataset card identity is not frozen",)
+        configured_root = _resolve_repo_path(self.repo_root, self.dataset.root)
+        allowed_roots = (self.repo_root, configured_root)
+        card_path = _resolve_repo_path(self.repo_root, self.dataset.dataset_card)
+        if not _path_is_within_any(card_path, allowed_roots):
+            return ("dataset card escapes the repository and dataset root",)
+        if not card_path.is_file():
+            return (f"dataset card is missing: {card_path}",)
+        try:
+            card_bytes = card_path.read_bytes()
+        except OSError as exc:
+            return (f"dataset card hash cannot be read: {exc}",)
+        if hashlib.sha256(card_bytes).hexdigest() != self.dataset.dataset_card_sha256:
+            return ("dataset card SHA-256 differs from the frozen config",)
+        try:
+            card = yaml.safe_load(card_bytes.decode("utf-8"))
+        except (UnicodeError, yaml.YAMLError) as exc:
+            return (f"dataset card cannot be parsed after hash verification: {exc}",)
+        if not isinstance(card, Mapping):
+            return ("dataset card must contain a top-level mapping",)
+        return _LoadedDatasetCard(
+            card_path=card_path,
+            configured_root=configured_root,
+            allowed_roots=allowed_roots,
+            payload=card,
+        )
+
+    def _validate_card_contract(
+        self,
+        loaded: _LoadedDatasetCard,
+    ) -> tuple[str, ...]:
+        """交叉核对卡片名称、raw 根、两个文件名及文件的 containment。"""
+
+        card = loaded.payload
+        if card.get("name") != self.dataset.name:
+            return ("dataset card name differs from the entry config",)
+        files = card.get("files")
+        if not isinstance(files, Mapping):
+            return ("dataset card files metadata must be a mapping",)
+        card_root_value = files.get("root")
+        if not isinstance(card_root_value, str) or self.dataset.root is None:
+            return ("dataset card does not declare a string raw root",)
+        card_root = _resolve_path_from(loaded.card_path.parent, Path(card_root_value))
+        if card_root != loaded.configured_root:
+            return ("dataset root differs from the dataset card",)
+        for config_name, configured_file, card_name in (
+            ("normal_file", self.dataset.normal_file, "train"),
+            ("fault_file", self.dataset.fault_file, "test"),
+        ):
+            card_file = files.get(card_name)
+            if not isinstance(card_file, str):
+                return (f"dataset card does not declare files.{card_name}",)
+            if configured_file is None or Path(card_file) != configured_file:
+                return (f"dataset {config_name} differs from the dataset card",)
+            raw_path = _resolve_path_from(loaded.configured_root, configured_file)
+            if not _path_is_within_any(raw_path, (loaded.configured_root,)):
+                return (f"dataset {config_name} escapes the dataset root",)
+        return ()
+
+    def _validate_license_status(self, card: Mapping[str, Any]) -> str | None:
+        """读取卡片许可事实并与入口配置交叉核对，不把缺字段解释成授权。"""
+
+        access = card.get("access")
+        source = card.get("source")
+        if not isinstance(access, Mapping):
+            return "dataset card access metadata must be a mapping"
+        card_license_status = access.get("license_status")
+        if card_license_status is None and isinstance(source, Mapping):
+            local_mat = source.get("local_mat")
+            if isinstance(local_mat, Mapping):
+                card_license_status = local_mat.get("license_status")
+            if card_license_status is None:
+                card_license_status = source.get("license_status")
+        if not isinstance(card_license_status, str):
+            return "dataset card does not declare a string license_status"
+        if card_license_status != self.dataset.license_status:
+            return (
+                "dataset card license_status is "
+                f"{card_license_status!r}; entry config declares "
+                f"{self.dataset.license_status!r}"
+            )
+        return None
+
+    def _validate_verified_evidence(
+        self,
+        loaded: _LoadedDatasetCard,
+    ) -> tuple[str, ...]:
+        """验证 verified 卡片的具体许可、MAT 状态、raw hash 和两份证据文件。"""
+
+        card = loaded.payload
+        access = card.get("access")
+        source = card.get("source")
+        if not isinstance(access, Mapping):
+            return ("dataset card access metadata must be a mapping",)
+        errors: list[str] = []
+        license_id = access.get("license")
+        if not isinstance(license_id, str) or license_id in {
+            "",
+            "to_verify",
+            "unknown",
+        }:
+            errors.append("verified dataset card requires a concrete access.license")
+        if not isinstance(source, Mapping):
+            return (*errors, "verified dataset card requires source.local_mat evidence")
+        local_mat = source.get("local_mat")
+        if not isinstance(local_mat, Mapping):
+            return (*errors, "verified dataset card requires source.local_mat evidence")
+        for status_name in ("provenance_status", "license_status"):
+            if local_mat.get(status_name) != "verified":
+                errors.append(
+                    "verified dataset card requires local MAT "
+                    f"{status_name}='verified'"
+                )
+        for hash_name, expected_hash in (
+            ("normal_sha256", self.dataset.normal_source_hash),
+            ("fault_sha256", self.dataset.fault_source_hash),
+        ):
+            if expected_hash is None or local_mat.get(hash_name) != expected_hash:
+                errors.append(
+                    f"verified dataset card {hash_name} differs from the entry config"
+                )
+        errors.extend(self._validate_evidence_files(loaded, local_mat))
+        return tuple(errors)
+
+    def _validate_evidence_files(
+        self,
+        loaded: _LoadedDatasetCard,
+        local_mat: Mapping[str, Any],
+    ) -> list[str]:
+        """逐一验证生成记录与许可证据的位置、存在性和冻结 hash。"""
+
+        errors: list[str] = []
+        for evidence_name in ("generation_record", "license_evidence"):
+            evidence_value = local_mat.get(evidence_name)
+            evidence_hash = local_mat.get(f"{evidence_name}_sha256")
+            if (
+                not isinstance(evidence_value, str)
+                or not isinstance(evidence_hash, str)
+                or not _SHA256_RE.fullmatch(evidence_hash)
+            ):
+                errors.append(
+                    "verified dataset card requires "
+                    f"{evidence_name} and its SHA-256"
+                )
+                continue
+            evidence_path = _resolve_path_from(
+                loaded.card_path.parent,
+                Path(evidence_value),
+            )
+            if not _path_is_within_any(evidence_path, loaded.allowed_roots):
+                errors.append(
+                    f"verified dataset card {evidence_name} escapes allowed roots"
+                )
+                continue
+            if not evidence_path.is_file():
+                errors.append(
+                    f"verified dataset card {evidence_name} is missing: {evidence_path}"
+                )
+                continue
+            try:
+                observed_evidence_hash = sha256_file(evidence_path)
+            except OSError as exc:
+                errors.append(
+                    f"verified dataset card {evidence_name} cannot be read: {exc}"
+                )
+                continue
+            if observed_evidence_hash != evidence_hash:
+                errors.append(
+                    f"verified dataset card {evidence_name} SHA-256 differs"
+                )
+        return errors
 
 
 class PaperPrimaryProtocolLockConfig(StrictConfig):
@@ -634,6 +900,10 @@ class FrozenEvaluationEntryConfig(StrictConfig):
         """
 
         errors: list[str] = []
+        card_errors = self.dataset.dataset_card_readiness_errors(
+            repo_root=repo_root
+        )
+        errors.extend(card_errors)
         if self.mode != "frozen":
             errors.append(
                 f"mode is {self.mode!r}; explicit frozen evaluation requires mode='frozen'"
@@ -655,7 +925,7 @@ class FrozenEvaluationEntryConfig(StrictConfig):
                 path = _resolve_repo_path(root, configured_path)
                 if not path.is_file():
                     errors.append(f"normal_artifacts.{name} is missing: {path}")
-        if self.dataset.license_status == "verified":
+        if self.dataset.license_status == "verified" and not card_errors:
             data_root = _resolve_repo_path(root, self.dataset.root)
             for name, relative, expected_hash in (
                 (
@@ -805,7 +1075,29 @@ def _resolve_repo_path(root: Path, value: Path | None) -> Path:
 
     if value is None:
         return root.resolve()
-    return value.resolve() if value.is_absolute() else (root / value).resolve()
+    return _resolve_path_from(root, value)
+
+
+def _resolve_path_from(base: Path, value: Path) -> Path:
+    """解析配置路径并跟随现有符号链接，供后续 containment 比较。"""
+
+    return value.resolve() if value.is_absolute() else (base / value).resolve()
+
+
+def _path_is_within_any(path: Path, allowed_roots: tuple[Path, ...]) -> bool:
+    """判断解析后的路径是否位于任一授权根内。
+
+    ``Path.relative_to`` 同时处理相对段归一化后的 ``..``；调用方必须传入已经 ``resolve``
+    的路径和根，使指向边界外的现有符号链接也无法只靠表面路径通过。
+    """
+
+    for allowed_root in allowed_roots:
+        try:
+            path.relative_to(allowed_root)
+        except ValueError:
+            continue
+        return True
+    return False
 
 
 def _json_copy(value: Any) -> Any:

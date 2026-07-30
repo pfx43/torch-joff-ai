@@ -18,6 +18,8 @@ dataset:
   root: null
   normal_file: null
   fault_file: null
+  dataset_card: null
+  dataset_card_sha256: null
   license_status: synthetic_only
   feature_count: 7
   normal_rows: 240

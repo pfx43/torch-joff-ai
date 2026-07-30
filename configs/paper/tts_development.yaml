@@ -18,6 +18,8 @@ dataset:
   root: datasets/raw/oa/TTS/fe
   normal_file: train/[train].mat
   fault_file: test/[test].mat
+  dataset_card: datasets/cards/oa/tts_fault_diagnosis/dataset_card.yaml
+  dataset_card_sha256: 37cf3642d52329eb7881029fbdf96ca060ebde8c6fdfa6a0bf6b9686a223aeb5
   license_status: to_verify
   feature_count: 7
   normal_rows: 16008

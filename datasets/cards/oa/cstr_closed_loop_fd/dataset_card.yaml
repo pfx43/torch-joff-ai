@@ -39,6 +39,12 @@ source:
     provenance_status: to_verify
     license_status: to_verify
     reason: local_mat_generation_chain_not_documented
+    normal_sha256: ef889b69b5ffa270b96a7ded86595b066a8b278df0cb39ddbb3ad18dacdd9839
+    fault_sha256: 83e438244bc30a76daf2873f20adc058c5096b67e26237205daf5965c2dba956
+    generation_record: null
+    generation_record_sha256: null
+    license_evidence: null
+    license_evidence_sha256: null
 protocol:
   fault_onset: 200
   fault_families:

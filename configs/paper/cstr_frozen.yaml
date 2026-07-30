@@ -18,6 +18,8 @@ dataset:
   root: datasets/raw/oa/CSTR/fd_close
   normal_file: train/model1[train].mat
   fault_file: test/model1[test].mat
+  dataset_card: datasets/cards/oa/cstr_closed_loop_fd/dataset_card.yaml
+  dataset_card_sha256: 7210bac0fd08919c9140929b1ec9cfd139869348e4872a34fb1056183bed8842
   license_status: to_verify
   feature_count: 7
   normal_rows: 16814

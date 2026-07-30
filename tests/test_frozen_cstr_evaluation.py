@@ -96,6 +96,77 @@ _SYNTHETIC_CHECKPOINT_HASH = (
 _ROOT = Path(__file__).resolve().parents[1]
 
 
+def _write_verified_dataset_card_fixture(
+    card_path: Path,
+    *,
+    data_root: Path,
+    normal_file: str,
+    fault_file: str,
+    normal_sha256: str,
+    fault_sha256: str,
+) -> tuple[Path, str]:
+    """写入只供合成测试使用的完整数据卡证据链。
+
+    参数：
+        card_path/data_root/normal_file/fault_file: 临时卡片及其声明的 synthetic MAT 路径。
+        normal_sha256/fault_sha256: 由测试独立创建的 fixture 文件身份。
+    返回：
+        卡片路径及其 SHA-256，供严格入口配置绑定。
+    异常：
+        临时目录不可写或 YAML 序列化失败时传播原异常。
+    副作用：
+        在 ``tmp_path`` 下创建生成记录、许可说明和数据卡；内容明确标记 test-only，绝不
+        作为真实 CSTR 数据许可证据或论文结果。
+    """
+
+    card_path.parent.mkdir(parents=True, exist_ok=True)
+    generation_record = card_path.with_suffix(".generation.txt")
+    license_evidence = card_path.with_suffix(".license.txt")
+    generation_record.write_text(
+        "test-only synthetic MAT generation record\n",
+        encoding="utf-8",
+    )
+    license_evidence.write_text(
+        "test-only permission for synthetic pytest fixture\n",
+        encoding="utf-8",
+    )
+    card = {
+        "name": "cstr_closed_loop_fd",
+        "access": {
+            "tag": "test",
+            "disclosure": "synthetic_fixture",
+            "license": "test-only-fixture-license",
+            "license_status": "verified",
+        },
+        "files": {
+            "root": str(data_root),
+            "train": normal_file,
+            "test": fault_file,
+        },
+        "source": {
+            "local_mat": {
+                "provenance_status": "verified",
+                "license_status": "verified",
+                "normal_sha256": normal_sha256,
+                "fault_sha256": fault_sha256,
+                "generation_record": generation_record.name,
+                "generation_record_sha256": hashlib.sha256(
+                    generation_record.read_bytes()
+                ).hexdigest(),
+                "license_evidence": license_evidence.name,
+                "license_evidence_sha256": hashlib.sha256(
+                    license_evidence.read_bytes()
+                ).hexdigest(),
+            }
+        },
+    }
+    card_path.write_text(
+        yaml.safe_dump(card, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return card_path, hashlib.sha256(card_path.read_bytes()).hexdigest()
+
+
 def _risk_calibration(
     name: Literal["detection", "attribution"],
     *,
@@ -1702,6 +1773,14 @@ def test_normal_development_entry_generates_all_artifacts_without_fault_access(
     values = rng.normal(scale=0.05, size=(800, 7))
     savemat(normal_path, {"normal": values})
     normal_hash = hashlib.sha256(normal_path.read_bytes()).hexdigest()
+    card_path, card_hash = _write_verified_dataset_card_fixture(
+        data_root / ".paper-evidence" / "dataset_card.yaml",
+        data_root=data_root,
+        normal_file="normal.mat",
+        fault_file="must-not-be-opened.mat",
+        normal_sha256=normal_hash,
+        fault_sha256=_B,
+    )
     run_dir = tmp_path / "runs" / "development"
     artifact_paths = {
         "resolved_config": run_dir / "resolved_config.yaml",
@@ -1740,6 +1819,8 @@ def test_normal_development_entry_generates_all_artifacts_without_fault_access(
             "root": str(data_root),
             "normal_file": "normal.mat",
             "fault_file": "must-not-be-opened.mat",
+            "dataset_card": str(card_path),
+            "dataset_card_sha256": card_hash,
             "license_status": "verified",
             "normal_rows": 800,
             "normal_source_hash": normal_hash,
@@ -1906,6 +1987,14 @@ def test_formal_manifest_builder_binds_reviewed_normal_artifacts_before_fault_cl
         },
     )
     inspection = inspect_closed_loop_cstr_archive(data_root, fault_onset=200)
+    card_path, card_hash = _write_verified_dataset_card_fixture(
+        data_root / ".paper-evidence" / "dataset_card.yaml",
+        data_root=data_root,
+        normal_file="train/model1[train].mat",
+        fault_file="test/model1[test].mat",
+        normal_sha256=inspection.normal_source_hash,
+        fault_sha256=inspection.fault_source_hash,
+    )
     artifacts = tmp_path / "normal-artifacts"
     checkpoint = artifacts / "protected.pt"
     checkpoint.parent.mkdir(parents=True)
@@ -2136,6 +2225,8 @@ def test_formal_manifest_builder_binds_reviewed_normal_artifacts_before_fault_cl
                 "root": str(data_root),
                 "normal_file": "train/model1[train].mat",
                 "fault_file": "test/model1[test].mat",
+                "dataset_card": str(card_path),
+                "dataset_card_sha256": card_hash,
                 "license_status": "verified",
                 "feature_count": 7,
                 "normal_rows": 12,
