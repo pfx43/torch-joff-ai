@@ -175,8 +175,15 @@ judge causal or mathematical quality from keywords alone.
   has been promoted to a heading without a scientific reason.
 - Record the exact target-journal or scientific justification for every
   accepted deviation.
+- Verify that Section II (Preliminaries and Problem Formulation) contains
+  only standard background definitions and the mathematically stated problem.
+  All paper-specific innovations, constructions, and methods must appear in
+  Section III or the designated method section, not in preliminaries.
+- Confirm that the exposition follows top-down order within each section:
+  overall system architecture and objective before module structures, modules
+  before parameters. Variables must not appear before their defining context.
 
-### 2. Sentence-to-sentence logic
+### 2. Sentence-to-sentence logic and language variety
 
 - Assign each sentence a role such as premise, limitation, motivation,
   definition, derivation, consequence, evidence, or transition.
@@ -185,8 +192,28 @@ judge causal or mathematical quality from keywords alone.
 - Remove unexplained topic jumps, unsupported conclusions, repeated claims,
   vague pronouns, and connective words that do not express the actual logical
   relation.
+- Avoid stacking declarative statements without sentence variety. Use diverse
+  sentence patterns: active and passive voice, subordinate clauses,
+  participial phrases, prepositional phrases, adverbial modifiers, and
+  appropriate adjectives and adverbs to create connected technical paragraphs
+  rather than command-like prose.
+- Verify that each paragraph serves one clear purpose: introduce or clarify a
+  module, support the paper's argument and contributions, or provide logical
+  transition. Remove paragraphs that pad word count without advancing
+  understanding or supporting a claim.
+- Verify that each paragraph's first sentence explicitly states the paragraph's
+  single theme or function. The first sentence should answer "What is this 
+  paragraph about?" without requiring readers to infer from later sentences.
+  Common patterns for first sentences:
+  * Definition: "[Term] is [definition]" or "[Term] consists of [components]"
+  * Background: "In [domain], [established fact] is [state]"
+  * Procedure: "[Method] requires [steps]" or "Training [model] involves [process]"
+  * Transition: "In order to [goal], [construction] is [action]"
+- Reject first sentences that are vague setup phrases like "There are several
+  considerations" or "It is important to note that" without immediately naming
+  the actual topic.
 
-### 3. Narrative causality
+### 3. Narrative causality and exposition order
 
 - Trace the chain from problem or limitation, through the need for the method,
   to the action of the proposed construction, the derived consequence, and the
@@ -195,6 +222,16 @@ judge causal or mathematical quality from keywords alone.
   change supports the next result.
 - Do not substitute chronology, correlation, architecture order, or a module
   inventory for a causal explanation.
+- Within each paragraph, follow reason-before-result order: state the
+  motivation, problem, or limitation first, then present the construction or
+  outcome as its consequence.
+- Between paragraphs and subsections, follow macro-to-micro progression:
+  present the overall system mapping and objective before introducing
+  module-level structures, and introduce modules before their parameter-level
+  details.
+- Verify that variables are defined before use: do not introduce H, S, ρ, ω,
+  or other parameters before explaining what overall system or mapping they
+  serve.
 
 ### 4. Symbol consistency
 

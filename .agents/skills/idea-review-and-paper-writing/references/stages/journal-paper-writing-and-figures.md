@@ -39,6 +39,8 @@ Read the complete manuscript source, bibliography, project instructions, active 
 
 Apply the writing, organization, notation, terminology, evidence-preservation, and formal-claim rules in `references/living-user-rules.md`. Build or update the notation ledger and search the complete source for collisions.
 
+For Introduction structure, literature review organization, method section exposition, and paragraph-level writing patterns, consult `references/writing-patterns.md`. These patterns are extracted from peer-reviewed IEEE Transactions publications and provide concrete templates for the five-paragraph Introduction structure, problem-solution-limitation chains in literature reviews, top-down method presentation, three-layer mathematical content presentation (motivation-formula-interpretation), and effective transition sentences between subsections.
+
 When the user requests a complete paper, preserve a submission-shaped set of elements: title, abstract, keywords, Introduction, related background, system description and problem definition, method, central analytical results and proofs, training or algorithm realization, complexity and online implementation, experiments or an explicitly labeled experiment-design section, Conclusion, and references. Results that do not yet exist may remain as a protocol, but their absence does not justify reducing the rest of the manuscript to research notes.
 
 Keep standard background in preliminaries and paper-specific constructions in the method section. Do not promote every module or proof stage to a main section. Move long proofs to appendices; include backpropagation-gradient formulas only when the optimization derivation is itself a contribution.
