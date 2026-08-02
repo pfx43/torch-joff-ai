@@ -12,7 +12,7 @@ Domain guidance contains three kinds of material:
 - admissible modeling routes that require explicit assumptions;
 - incompatible alternatives that must not be combined without a new derivation.
 
-Before applying a route-specific rule, check the active `MANUSCRIPT_CONTEXT.md`. If the route is not `confirmed`, treat it as exploratory guidance only.
+Before applying a route-specific rule, check the active versioned manuscript context. If the route is not `confirmed`, treat it as exploratory guidance only.
 
 Paper-specific discussions do not belong in this directory. Store each distinct manuscript as one file under `cases/<task-group>/`, and promote only the generalized domain lesson back into a domain document.
 
@@ -46,6 +46,6 @@ Use a short descriptive filename. Organize the document in this order:
 
 6. experiment and evidence requirements;
 
-7. items that must be recorded in `MANUSCRIPT_CONTEXT.md`.
+7. items that must be recorded in the active versioned manuscript context.
 
 Promote a rule to `living-user-rules.md` only when it transfers across domains. Put one-paper symbols, equations, architectures, datasets, and temporary hypotheses in the project context instead.

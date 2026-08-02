@@ -45,12 +45,49 @@
     ]
   },
   {
-    "id": "stage2-editable-vector-figure",
+    "id": "stage2-paper-conception-freeze",
     "stage": 2,
+    "prompt": "论文方向已经通过 idea 审查，但背景与任务、主要贡献、符号、文章结构和叙事逻辑仍在变化。请先开始写方法和 Introduction，后面再统一。",
+    "rubric": [
+      "Blocks manuscript-ready drafting and works only in MANUSCRIPT_CONTEXT.md inside the active revision folder.",
+      "Completes and iterates the background/task, problem-contribution-result map, technical main line, model-definition order, notation and terminology registries, chapter blueprint, paragraph progression, and Stage 3 schematic handoff.",
+      "Runs C1-C9 and records inspected evidence and revision actions rather than bare PASS values.",
+      "Uses one stable Baseline ID for the paper lineage and increments a positive integer revision whenever the context is refrozen.",
+      "Uses a short Baseline ID and binds the exact <baseline-id>-r<revision> pair through the revision-folder name and metadata, while keeping simple internal role filenames.",
+      "Freezes the exact <Baseline ID, revision> snapshot only after all blocking conflicts are resolved.",
+      "Selects any task-matched manuscript and published-style cases as calibration inputs without transferring their claims."
+    ],
+    "forbidden": [
+      "Creates final manuscript prose while the context remains DRAFT_CONTEXT.",
+      "Maintains separate notation or section-role files that can diverge from the versioned manuscript context.",
+      "Enters Stage 3 before a frozen baseline exists."
+    ]
+  },
+  {
+    "id": "stage2-versioned-artifact-naming",
+    "stage": 2,
+    "prompt": "这篇故障诊断论文当前冻结 revision 是 3。请用很长的标题作为 Baseline ID，并把 ID 和 r3 重复加到每个文件名里。",
+    "rubric": [
+      "Chooses a short recognizable Baseline ID such as koop-fd rather than a title-length phrase.",
+      "Names the revision folder koop-fd-r3 and keeps MANUSCRIPT_CONTEXT.md, manuscript.tex, manuscript.pdf, references.bib, and the two loop logs inside it.",
+      "Uses short figure and plot basenames inside figures and plots instead of repeating the folder identity.",
+      "Records the matching frozen-snapshot comment and revision-folder metadata and treats every folder/metadata mismatch as blocking."
+    ],
+    "forbidden": [
+      "Repeats <baseline-id>-r3 in every internal filename or uses final, dates, or author initials as a second revision system.",
+      "Changes the revision-folder number without refreezing the Stage 2 context."
+    ]
+  },
+  {
+    "id": "stage4-editable-vector-figure",
+    "stage": 4,
     "prompt": "请为论文画一个可拆解的模型结构图，所有模块、箭头和文字以后都要能单独修改，并交付 SVG 或 PPT。",
     "rubric": [
+      "Requires a stable Stage 3 LaTeX schematic and manuscript description before final production.",
       "Selects an editable vector workflow.",
       "Keeps text, shapes, connectors, groups, and semantic layers editable.",
+      "Uses titled major frames around complete but concise details, leaves the complete figure title to the caption, and keeps arrows directed shape-to-shape without a visual cycle.",
+      "Names the editable source and export with the short canonical model-figure pattern inside the active revision folder.",
       "Preserves a source file and validates the export.",
       "Does not flatten the whole figure into a bitmap."
     ],
@@ -60,8 +97,8 @@
     ]
   },
   {
-    "id": "stage2-ai-draft-palette-reconstruction",
-    "stage": 2,
+    "id": "stage4-ai-draft-palette-reconstruction",
+    "stage": 4,
     "prompt": "请根据论文标题、摘要和方法部分先生成一个科研图草案，再做成可编辑的 PPT。整体要冷色灰色调，但关键创新要有一个鲜明亮色。",
     "rubric": [
       "Uses the title and abstract only to identify a candidate figure family, then derives topology from the method or explicit specification.",
@@ -77,12 +114,93 @@
     ]
   },
   {
-    "id": "stage2-official-latex-template",
-    "stage": 2,
+    "id": "stage4-task-workflow-hierarchy",
+    "stage": 4,
+    "prompt": "请把论文任务流程画成最终科研图，包含数据采集与预处理、离线建模、在线监测三个阶段。",
+    "rubric": [
+      "Uses titled major frames for the three process steps and complete but concise contained shapes for each step.",
+      "Connects shapes with one-way, shape-to-shape arrows that may cross major frames but remain visually acyclic.",
+      "Distinguishes offline and online boundaries and preserves complete handoff objects between them.",
+      "Keeps the complete figure title out of the graphic and uses only manuscript-consistent terminology and symbols.",
+      "Uses local zoom-in or repeated-stack composition only when it clarifies a real repeated or nested operation."
+    ],
+    "forbidden": [
+      "Uses floating arrows, bidirectional arrows, or a decorative cycle that is not an unrolled scientific recurrence.",
+      "Uses poster, dashboard, or generic business-process iconography."
+    ]
+  },
+  {
+    "id": "stage4-principle-reference-search",
+    "stage": 4,
+    "prompt": "这个新方法没有固定的原理图模板。请参考顶刊顶会论文给我设计，并把参考图片放进案例库。",
+    "rubric": [
+      "Searches current primary top-tier literature because principle schematics have no fixed template.",
+      "Selects references by scientific relation and explanatory value rather than visual decoration.",
+      "Adds one inventory row with source, figure number, rights status, transferable composition pattern, and prohibited copied details to principle-diagrams/references.md.",
+      "Stores a local reference image only when user-provided, open-licensed, publisher-authorized, or otherwise lawful; otherwise stores metadata, link, and analysis only.",
+      "Builds the original paper's topology from its own theory and Stage 3 schematic rather than copying a distinctive layout."
+    ],
+    "forbidden": [
+      "Copies an unlicensed reference image or distinctive layout into the repository.",
+      "Treats a reference figure as evidence that the current method has the same scientific relations."
+    ]
+  },
+  {
+    "id": "stage4-icon-source-license-browser",
+    "stage": 4,
+    "prompt": "模型结构图里需要传感器和数据存储图标。去 iconfont 或 EmojiAll 下载好看的图标，网页需要登录时直接用 Chrome。",
+    "rubric": [
+      "Treats Iconfont and EmojiAll as candidate sources rather than blanket licenses.",
+      "Uses the Codex Chrome browser plugin only when dynamic, signed-in, or interactive page state is needed and does not inspect credentials or hidden session data.",
+      "Checks the exact asset, author or library, source URL, access date, format, license, commercial-publication permission, and attribution before download or use.",
+      "Registers the asset as APPROVED before use, prefers an editable SVG when available, and keeps the untouched source separate from normalized derivatives.",
+      "Rejects expressive, branded, poster-like, business, or otherwise non-academic iconography."
+    ],
+    "forbidden": [
+      "Bulk scrapes either website or assumes that a downloadable asset is publication-safe.",
+      "Uses a BLOCKED or unregistered icon, or treats a vendor emoji rendering as license-equivalent to the Unicode character."
+    ]
+  },
+  {
+    "id": "stage4-three-category-reference-library",
+    "stage": 4,
+    "prompt": "请把每张参考科研图各建一个案例文件夹，局部放大图也单独建一类。",
+    "rubric": [
+      "Keeps exactly three category-level cases: principle diagrams, model-structure diagrams, and task-workflow diagrams.",
+      "Stores one inventory row per selected reference in the matching category references.md and uses the stable reference ID for any lawful local image.",
+      "Keeps local zoom-ins, repeated stacks, and parallel branches as composition patterns rather than new case categories.",
+      "Stores local images only when their reuse is lawful and otherwise keeps metadata, rights status, link, and structural analysis."
+    ],
+    "forbidden": [
+      "Creates one directory per reference figure.",
+      "Creates a fourth case category for a layout pattern or stores unauthorized publisher images."
+    ]
+  },
+  {
+    "id": "stage4-experiment-plot-narration",
+    "stage": 4,
+    "prompt": "实验数据图已经由我们的专门 Python 代码库导出。请根据这些图写实验结果，并同步图注、摘要和结论。",
+    "rubric": [
+      "Consumes reviewed plot exports and underlying result metadata without reimplementing the external plotting library or hand-editing data points.",
+      "For each plot, states the tested question before reporting observation, comparison, supported interpretation, and limitation.",
+      "Distinguishes direct observation from inference and reports conditions, metrics, baselines, and uncertainty needed to support each claim.",
+      "Updates figure captions, experiment prose, abstract, and conclusion so that their scope and maturity agree.",
+      "Records E1-E3 and D1 with concrete evidence and revision actions."
+    ],
+    "forbidden": [
+      "Invents missing numbers, significance, causal explanations, or generality.",
+      "Rewrites or substitutes the dedicated Python quantitative-plot code inside this skill."
+    ]
+  },
+  {
+    "id": "stage3-official-latex-template",
+    "stage": 3,
     "prompt": "请用《控制理论与应用》的官方 LaTeX 模板开始写论文。我的环境提示缺少 picins.sty，你可以顺便把模板头文件改到能编译。",
     "rubric": [
+      "Requires or confirms a frozen Stage 2 context before manuscript drafting begins.",
       "Selects the registered official journal archive and preserves its GBK bytes.",
       "Initializes a working copy while leaving the cached original untouched.",
+      "Uses the short <baseline-id>-r<revision> revision folder and renames only the editable entry source to manuscript.tex while recording the original name in the lock.",
       "Refuses to remove or replace publisher packages merely to fix the local environment.",
       "Reports picins.sty as a non-bundled environment dependency and audits template integrity.",
       "Uses only the toolchain version stated in the verified publisher instructions and identifies it as legacy guidance."
@@ -94,10 +212,11 @@
     ]
   },
   {
-    "id": "stage2-chinese-default-template",
-    "stage": 2,
+    "id": "stage3-chinese-default-template",
+    "stage": 3,
     "prompt": "请开始写一篇中文控制领域论文，我没有指定投稿期刊，也没有给模板。",
     "rubric": [
+      "Requires or confirms a frozen Stage 2 context before manuscript drafting begins.",
       "Selects the registered 控制理论与应用 template without asking for a different default.",
       "Proceeds with the Chinese default without requesting redundant template confirmation.",
       "Preserves the template's GBK encoding and two-column body structure.",
@@ -112,14 +231,14 @@
     ]
   },
   {
-    "id": "stage2-notation-registry-loop",
-    "stage": 2,
+    "id": "stage3-notation-registry-loop",
+    "stage": 3,
     "prompt": "请继续写方法部分。现有符号表中 f 表示故障，但前文又用 F 表示状态转移映射；H 同时表示历史窗口和 Hilbert 空间。可以先写完再统一吗？",
     "rubric": [
       "Stops substantive drafting until the notation registry is reconciled.",
       "Searches exact glyphs and base-character variants across the complete manuscript.",
       "Keeps one semantic family per base character and one typography per object type.",
-      "Renames conflicting objects, updates the ledger, and reruns the subsection audit before continuing."
+      "Renames conflicting objects, returns to Stage 2 to revise and refreeze the context, and reruns invalidated Stage 3 audits before continuing."
     ],
     "forbidden": [
       "Defers symbol reconciliation until final proofreading.",
@@ -127,15 +246,15 @@
     ]
   },
   {
-    "id": "stage2-meaningful-symbol-selection-loop",
-    "stage": 2,
+    "id": "stage3-meaningful-symbol-selection-loop",
+    "stage": 3,
     "prompt": "我准备在观测器里用 q 表示增益，又用 G 表示故障，虽然前文的 g 已经表示非线性映射。符号表只列含义和维度即可吗？先把公式写完。",
     "rubric": [
-      "Blocks further equation drafting until the notation ledger is reconciled.",
+      "Blocks further equation drafting until the context notation registry is reconciled and refrozen.",
       "Checks target-journal and field conventions first, then mathematical convention, then a meaningful English initial or semantic mnemonic.",
-      "Records the naming basis and either Introduction Notation or the exact first-definition location in the Markdown ledger.",
+      "Records the naming basis and either Introduction Notation or the exact first-definition location in the Markdown context registry.",
       "Rejects a misleading initial or any exact-symbol, object-type, or base-family conflict and propagates the rename through equations, algorithms, captions, appendices, and figures.",
-      "Reruns the subsection symbol-consistency audit after the ledger and manuscript are synchronized."
+      "Reruns invalidated subsection symbol-consistency audits after the context and manuscript are synchronized."
     ],
     "forbidden": [
       "Chooses any unused letter without recording why it is appropriate.",
@@ -144,15 +263,15 @@
     ]
   },
   {
-    "id": "stage2-problem-contribution-loop",
-    "stage": 2,
+    "id": "stage3-problem-contribution-loop",
+    "stage": 3,
     "prompt": "论文第二节的 Monitoring Objectives 有五条，Introduction 有三条贡献，摘要又强调四个模块。请直接润色摘要并继续写后文。",
     "rubric": [
       "Blocks downstream prose polishing until the task counts are reconciled.",
       "Renames the subsection Problem Formulation or Problem Description.",
       "Uses one numbered item per central subproblem and normally retains two or three.",
       "Aligns the problem items, contributions, body results, and abstract in count and order.",
-      "Updates the section-role matrix and reruns the alignment gate."
+      "Returns to Stage 2, updates and refreezes the context alignment and chapter blueprint, then reruns the Stage 3 alignment gate."
     ],
     "forbidden": [
       "Keeps the five-item checklist as the mathematical problem statement.",
@@ -160,22 +279,73 @@
     ]
   },
   {
-    "id": "stage2-seven-priority-writing-loop",
-    "stage": 2,
-    "prompt": "方法部分已经写完三个小节，语法基本正确，但后来又单独加了一章网络结构。符号、公式和训练测试流程准备最后再统一。请继续写实验。",
+    "id": "stage3-ten-priority-writing-loop",
+    "stage": 3,
+    "prompt": "方法部分已经写完三个小节，语法基本正确，但后来又单独加了一章网络结构。符号、公式、术语和简图准备最后再统一。请继续写实验。",
     "rubric": [
       "Blocks the next section until the current chapter arrangement is rechecked against the skill sequence and every deviation is justified.",
-      "Audits each revised subsection for sentence-to-sentence logic and an explicit problem–method–mechanism–result–evidence causal chain.",
-      "Reconciles every symbol through the notation ledger before further drafting.",
+      "Audits each revised subsection for sentence-to-sentence logic, macro-to-micro progression, and an explicit cause/purpose–method–mechanism–result–evidence chain.",
+      "Detects rigid declarative stacking and revises sentence forms according to real agency and logical relations without forcing decorative variation.",
+      "Maps every retained paragraph to one necessary theme, its incoming logical relation, abstraction level, and reader-facing output.",
+      "Reconciles every symbol through the frozen context notation registry before further drafting.",
       "Checks formula definitions, assumptions, indices, dimensions, algebraic transitions, boundary cases, and conclusion scope.",
-      "Completes the model information boundary, mappings, parameters, update order, and component interfaces.",
-      "Separates training, validation, testing, and online deployment, including split-fitted preprocessing, model selection, metrics, and leakage checks.",
-      "Records concrete evidence and revision actions for all seven audits instead of entering bare PASS values."
+      "Checks terminology against the frozen terminology registry, defining only necessary abbreviations at first use and rejecting coined jargon without a field basis.",
+      "Checks whether principle, model-structure, and task-workflow LaTeX schematics are required and keeps their topology and symbols synchronized with the text.",
+      "Blocks experimental-result writing in Stage 3 and hands it to Stage 4.",
+      "Records concrete evidence and revision actions for W1-W10 and the paragraph-purpose map instead of entering bare PASS values."
     ],
     "forbidden": [
       "Continues to experiments because the prose is grammatically fluent.",
-      "Defers chapter, notation, formula, model, or workflow reconciliation to final proofreading.",
+      "Defers chapter, notation, terminology, formula, or schematic reconciliation to final proofreading.",
       "Uses keyword counts or transition-word presence as proof of logical or causal quality."
+    ]
+  },
+  {
+    "id": "stage3-style-exemplar-boundary",
+    "stage": 3,
+    "prompt": "这段方法描述全是短陈述句，也没有先解释为什么需要各模块。请照我已发表论文的风格直接复制几段成熟表达，把字数补足。",
+    "rubric": [
+      "Identifies one purpose for each retained paragraph before choosing an exemplar pattern.",
+      "Reorders the exposition from problem or purpose to overall mapping, components, mechanism, and consequence.",
+      "Uses source-tagged micro-examples only to calibrate sentence form and transition logic, then rewrites them for the current technical objects.",
+      "Varies active/passive voice, clauses, nonfinite constructions, prepositional openers, and modifiers only when they express genuine relations.",
+      "Runs W1-W10 and updates the paragraph-purpose map after revision."
+    ],
+    "forbidden": [
+      "Copies a published paragraph wholesale or treats its technical claim as evidence for the current paper.",
+      "Adds empty background or ornamental modifiers merely to increase length.",
+      "Selects transitions by keyword frequency without checking their antecedents or logical relation."
+    ]
+  },
+  {
+    "id": "skill-file-boundary-routing",
+    "stage": 2,
+    "prompt": "我找到一条通用写作规则、一篇已发表论文的表达范本、一张顶刊模型结构图、一个 SVG 图标和一份当前论文符号决策。都放进 references 方便统一读取吧。",
+    "rubric": [
+      "Routes reusable workflow rules to references, one-paper technical and style history to task-grouped cases, and figure precedents to one of the exactly three figure-category cases.",
+      "Routes reusable icons, palettes, and blank templates to assets, current-paper notation and conception decisions to the versioned manuscript context, and deterministic checks to scripts with regressions in tests.",
+      "Keeps SKILL.md as a concise router and reads only the current stage plus directly relevant branch references and cases.",
+      "Rejects duplicate authoritative truth across folders and updates the owning file instead."
+    ],
+    "forbidden": [
+      "Stores all material in references or turns SKILL.md into a complete copy of every rule.",
+      "Places current-paper decisions in reusable assets or treats a historical case as an active baseline."
+    ]
+  },
+  {
+    "id": "skill-detail-preservation-refactor",
+    "stage": 2,
+    "prompt": "请按 skill creator 把 skill 精简一下。项目规则、例外、负面案例和目前未形成固定偏好的事项太细了，可以删掉以节约 token。",
+    "rubric": [
+      "Rejects semantic deletion and inventories every independent rule, exception, example, project-specific detail, negative constraint, and explicit unknown boundary before restructuring.",
+      "Uses skill-creator only for boundary assignment, progressive disclosure, exact-semantic deduplication, organization, and validation.",
+      "Moves complete details to the narrowest authoritative stage, domain, case, asset, or maintenance file and adds discoverable routing instead of copying everything into SKILL.md.",
+      "Records conflicts and compatibility rules in the coverage ledger and adds validation or forward-test protection when silent loss could recur.",
+      "Reports destination mappings for every retired or split container."
+    ],
+    "forbidden": [
+      "Deletes a detail merely because it is specialized, verbose, historical, or irrelevant to the current task.",
+      "Treats similar keywords as exact semantic duplication or silently removes one side of a conflict."
     ]
   },
   {

@@ -154,34 +154,68 @@ def audit_agent_metadata(
 def audit_repository_contract(root: Path, errors: list[str]) -> None:
     required_files = {
         "README.md",
+        "README.en.md",
         "VERSION",
         "agents/openai.yaml",
         "assets/templates/figure-plan.md",
+        "assets/templates/figure-category-case.md",
         "assets/templates/idea-assessment.md",
         "assets/templates/manuscript-context.md",
-        "assets/templates/notation-ledger.md",
         "assets/templates/paper-case.md",
-        "assets/templates/section-role-matrix.md",
+        "assets/templates/stage4-figure-experiment-log.md",
+        "assets/templates/writing-loop-log.md",
+        "assets/palettes/README.md",
         "assets/palettes/scientific-figure-palettes.svg",
+        "assets/icons/README.md",
+        "assets/icons/icon-registry.md",
         "assets/latex-templates/sources.json",
         "cases/README.md",
+        "cases/figure-exemplars/README.md",
+        "cases/figure-exemplars/model-structure-diagrams/README.md",
+        "cases/figure-exemplars/model-structure-diagrams/references.md",
+        "cases/figure-exemplars/model-structure-diagrams/images/README.md",
+        "cases/figure-exemplars/principle-diagrams/README.md",
+        "cases/figure-exemplars/principle-diagrams/references.md",
+        "cases/figure-exemplars/principle-diagrams/images/README.md",
+        "cases/figure-exemplars/task-workflow-diagrams/README.md",
+        "cases/figure-exemplars/task-workflow-diagrams/references.md",
+        "cases/figure-exemplars/task-workflow-diagrams/images/README.md",
+        "cases/data-completion/published-am-dae-imputation-style.md",
+        "cases/fault-diagnosis/published-cg-sae-fault-classification-style.md",
+        "cases/fault-diagnosis/published-edbn-fault-classification-style.md",
+        "cases/fault-diagnosis/published-elm-aae-chinese-style.md",
+        "cases/fault-diagnosis/published-fae-gan-fault-estimation-style.md",
+        "cases/fault-diagnosis/published-lcp-fault-isolation-style.md",
+        "cases/fault-diagnosis/published-tdn-decoupled-residual-style.md",
         "cases/fault-diagnosis/koopman-ts-attention-unknown-fault-diagnosis.md",
+        "cases/nonlinear-dynamics/published-memristive-multi-butterfly-style.md",
+        "cases/process-monitoring/published-vae-ilvm-monitoring-style.md",
         "cases/soft-sensing/long-memory-contraction-observer-quality-prediction.md",
         "references/domains/README.md",
+        "references/detail-preservation-and-refactoring.md",
+        "references/artifact-naming.md",
         "references/domains/fault-diagnosis.md",
         "references/domains/soft-sensing-and-observers.md",
         "references/latex-template-workflow.md",
-        "references/manuscript-quality-gates.md",
+        "references/figure-composition-rules.md",
+        "references/manuscript-writing-loop.md",
         "references/rule-scope-map.md",
         "references/scientific-figure-palettes.md",
         "references/source-rule-coverage.md",
         "references/stages/idea-exploration.md",
-        "references/stages/journal-paper-writing-and-figures.md",
+        "references/stages/figures-and-experiments.md",
+        "references/stages/manuscript-writing.md",
+        "references/stages/paper-conception.md",
+        "references/style-exemplars/README.md",
+        "references/style-exemplars/architecture-and-narrative.md",
+        "references/style-exemplars/corpus-index.md",
+        "references/style-exemplars/sentence-and-transition-exemplars.md",
         "references/technical-validity-and-implementation.md",
         "references/tfs-reference-patterns.md",
         "references/typical-errors.md",
         "references/user-writing-requirements-and-preferences.md",
         "scripts/audit_figures.py",
+        "scripts/audit_artifact_names.py",
         "scripts/audit_manuscript.py",
         "scripts/audit_writing_loops.py",
         "scripts/compile_manuscript.py",
@@ -190,10 +224,10 @@ def audit_repository_contract(root: Path, errors: list[str]) -> None:
         "scripts/audit_latex_template.py",
         "scripts/render_palette_strips.py",
         "tests/forward-tests.json",
-        "tests/fixtures/writing-loop/main.tex",
-        "tests/fixtures/writing-loop/NOTATION_LEDGER.md",
-        "tests/fixtures/writing-loop/NOTATION_LEDGER_TYPE_CONFLICT.md",
-        "tests/fixtures/writing-loop/SECTION_ROLE_MATRIX.md",
+        "tests/fixtures/writing-loop-fixture-r2/manuscript.tex",
+        "tests/fixtures/writing-loop-fixture-r2/MANUSCRIPT_CONTEXT.md",
+        "tests/fixtures/writing-loop-fixture-r2/MANUSCRIPT_CONTEXT_TYPE_CONFLICT.md",
+        "tests/fixtures/writing-loop-fixture-r2/WRITING_LOOP_LOG.md",
     }
     for relative in sorted(required_files):
         if not (root / relative).is_file():
@@ -206,107 +240,249 @@ def audit_repository_contract(root: Path, errors: list[str]) -> None:
         else []
     )
     expected_stages = [
+        "figures-and-experiments.md",
         "idea-exploration.md",
-        "journal-paper-writing-and-figures.md",
+        "manuscript-writing.md",
+        "paper-conception.md",
     ]
     if stage_files != expected_stages:
         errors.append(
-            "the skill must have exactly the two stage documents: "
+            "the skill must have exactly the four stage documents: "
             + ", ".join(expected_stages)
+        )
+
+    figure_case_dir = root / "cases" / "figure-exemplars"
+    actual_figure_categories = (
+        sorted(path.name for path in figure_case_dir.iterdir() if path.is_dir())
+        if figure_case_dir.is_dir()
+        else []
+    )
+    expected_figure_categories = [
+        "model-structure-diagrams",
+        "principle-diagrams",
+        "task-workflow-diagrams",
+    ]
+    if actual_figure_categories != expected_figure_categories:
+        errors.append(
+            "figure exemplars must use exactly three category-level cases: "
+            + ", ".join(expected_figure_categories)
         )
 
     content_contracts = {
         "SKILL.md": (
+            "Use exactly four work stages",
             "Stage 1",
             "Stage 2",
-            "references/manuscript-quality-gates.md",
-            "sentence-to-sentence logic",
-            "narrative causality",
-            "references/rule-scope-map.md",
-            "references/latex-template-workflow.md",
+            "Stage 3",
+            "Stage 4",
+            "Baseline ID",
+            "Context revision",
+            "revision folder",
+            "references/artifact-naming.md",
+            "references/stages/figures-and-experiments.md",
+            "references/figure-composition-rules.md",
+            "MANUSCRIPT_CONTEXT.md",
+            "WRITING_LOOP_LOG.md",
+            "references/detail-preservation-and-refactoring.md",
         ),
         "references/stages/idea-exploration.md": (
-            "## Gate A:",
-            "## Gate B:",
-            "## Gate C:",
-            "## Repetition points",
+            "## Loop overview",
+            "| I1 | 现有工作重合 |",
+            "| I6 | 成熟度不夸大 |",
+            "## Repetition points and output",
         ),
-        "references/stages/journal-paper-writing-and-figures.md": (
-            ".drawio",
-            "structured SVG",
-            ".pptx",
-            "CCF-Figure",
-            "references/manuscript-quality-gates.md",
-            "references/scientific-figure-palettes.md",
-            "Scientific integrity and copyright",
-            "references/latex-template-workflow.md",
+        "references/stages/paper-conception.md": (
+            "## Loop overview",
+            "| C1 | 背景与任务定调 |",
+            "| C9 | 基线交叉冻结 |",
+            "MANUSCRIPT_CONTEXT.md",
+            "Baseline ID",
+            "Context revision",
+            "Revision folder",
+            "FROZEN",
         ),
-        "references/manuscript-quality-gates.md": (
-            "## Gate 0:",
-            "## Gate 1:",
-            "## Gate 2:",
-            "## Gate 3:",
-            "## Gate 4:",
-            "## Gate 5:",
-            "SECTION_ROLE_MATRIX.md",
-            "NOTATION_LEDGER.md",
-            "naming basis",
-            "first-definition route",
-            "Monitoring Objectives",
-            "## Seven mandatory subsection audits",
-            "Chapter and subsection arrangement",
-            "Sentence-to-sentence logic",
-            "Narrative causality",
-            "Formula rigor",
-            "Model-description completeness",
-            "Training, validation, testing, and deployment clarity",
-            "DRAFT -> CHECK -> FAIL -> REVISE -> CHECK",
+        "references/stages/manuscript-writing.md": (
+            "MANUSCRIPT_CONTEXT.md",
+            "WRITING_LOOP_LOG.md",
+            "audit_artifact_names.py",
+            "## Recommended writing order",
+            "Problem Formulation",
+            "## LaTeX schematic handoff",
+            "Do not draft the Experiments section",
         ),
-        "assets/templates/section-role-matrix.md": (
-            "## Chapter arrangement conformance",
-            "Actual top-level sequence:",
-            "## Subsection writing-loop record",
-            "Sentence-to-sentence logic",
-            "Narrative causality",
-            "Symbol consistency",
-            "Formula rigor",
-            "Model completeness",
-            "Training / validation / testing / deployment clarity",
-            "Evidence inspected and revision action",
+        "references/manuscript-writing-loop.md": (
+            "## Loop overview",
+            "| W1 | 基线一致性 |",
+            "| W2 | 章节先后性 |",
+            "| W3 | 叙事逻辑性 |",
+            "| W4 | 表达忌生硬 |",
+            "| W5 | 语句忌空洞 |",
+            "| W6 | 符号一致性 |",
+            "| W7 | 名词专有化 |",
+            "| W8 | 公式严谨性 |",
+            "| W9 | 示图完整性 |",
+            "| W10 | 全文对齐性 |",
+            "WRITING_LOOP_LOG.md",
+        ),
+        "references/stages/figures-and-experiments.md": (
+            "## Loop overview",
+            "| F1 | 证据输入就绪 |",
+            "| F9 | 配色可读一致 |",
+            "| E1 | 数据图结果一致 |",
+            "| E3 | 实验总结克制 |",
+            "| D1 | 图注正文闭合 |",
+            "external Python",
+            "assets/icons/README.md",
+            "Codex Chrome browser plugin",
+            "category-level cases",
+            "audit_artifact_names.py",
+        ),
+        "references/figure-composition-rules.md": (
+            "## Model structure diagrams",
+            "## Task workflow diagrams",
+            "## Principle schematics",
+            "## Arrow and connector contract",
+            "complete figure title",
+            "ends at another",
+            "Local zoom-in",
+            "Repeated-module stacking",
+            "Alibaba Iconfont",
+            "EmojiAll",
+            "assets/icons/icon-registry.md",
+            "Integrity, copyright, and verification",
+        ),
+        "assets/templates/writing-loop-log.md": (
+            "## Baseline binding",
+            "Baseline ID:",
+            "Revision folder:",
+            "## Paragraph purpose and progression map",
+            "## Subsection loop record",
+            "Loop ID",
+            "W10",
+            "## LaTeX schematic inventory",
+            "## Stage 3 gate record",
+            "S3-5",
+        ),
+        "assets/templates/stage4-figure-experiment-log.md": (
+            "## Baseline and evidence binding",
+            "Revision folder:",
+            "## Figure loop record",
+            "F1–F9",
+            "## Quantitative-plot and experiment loop record",
+            "E1–E3",
+            "## Figure–caption–text closure",
+            "D1",
         ),
         "assets/templates/manuscript-context.md": (
-            "## Contents",
-            "## Notation control artifact",
-            "Canonical ledger: `NOTATION_LEDGER.md`",
-            "Do not maintain a second symbol table",
-            "semantic family, naming basis or convention, and scope",
+            "sole Stage 2 conception artifact",
+            "Context status: DRAFT_CONTEXT",
+            "Baseline ID:",
+            "Context revision:",
+            "Revision folder:",
+            "## Background and task baseline",
+            "## Problem–contribution–result alignment",
+            "## Technical main line and causal story",
+            "## Model-definition order",
+            "## Loss and optimization baseline",
+            "## Notation registry",
+            "Naming basis / convention",
+            "## Terminology and abbreviation registry",
+            "## Chapter and subsection blueprint",
+            "## Planned narrative and paragraph progression",
+            "## Stage 3 LaTeX schematic requirements",
+            "## Stage 4 evidence and figure handoff",
+            "## Stage 2 conception gate record",
+        ),
+        "cases/figure-exemplars/README.md": (
+            "exactly three category-level cases",
+            "principle-diagrams/",
+            "model-structure-diagrams/",
+            "task-workflow-diagrams/",
+            "Do not create one directory per reference figure",
+            "## Rights and evidence boundary",
+        ),
+        "assets/templates/figure-category-case.md": (
+            "## Category identity",
+            "## Reference inventory",
+            "## Cross-reference synthesis",
+            "## Current-paper transfer decision",
+            "Do not create one case file per reference figure",
+        ),
+        "references/artifact-naming.md": (
+            "revision folder = <baseline-id>-r<context-revision>",
+            "MANUSCRIPT_CONTEXT.md",
+            "manuscript.tex",
+            "manuscript.pdf",
+            "WRITING_LOOP_LOG.md",
+            "STAGE4_FIGURE_EXPERIMENT_LOG.md",
+            "audit_artifact_names.py",
+        ),
+        "references/detail-preservation-and-refactoring.md": (
+            "## Nondeletion rule",
+            "## Required refactoring procedure",
+            "## Deduplication rule",
+            "## Evidence of preservation",
+            "explicitly unknown boundary",
+            "source-rule-coverage.md",
+        ),
+        "assets/icons/README.md": (
+            "https://www.iconfont.cn/",
+            "https://www.iconfont.cn/help/detail?helptype=code",
+            "https://www.emojiall.com/zh-hans",
+            "https://www.emojiall.com/zh-hans/notices",
+            "Codex Chrome browser plugin",
+            "icon-registry.md",
+            "Prefer SVG",
+        ),
+        "assets/icons/icon-registry.md": (
+            "Exact asset URL",
+            "License/permission",
+            "Commercial publication allowed",
+            "Parent registry ID",
+            "APPROVED",
+        ),
+        "scripts/audit_artifact_names.py": (
+            "BASELINE_RE",
+            "Revision folder",
+            "manuscript.tex",
+            "Frozen snapshot",
+            "--require-pdf",
+            "--require-stage4",
         ),
         "scripts/audit_writing_loops.py": (
-            "required_markers",
             "actual top-level chapter sequence is blank",
-            "bare PASS without evidence",
-            "subsection-loop row",
+            "bare PASS",
+            "Context status must be FROZEN",
+            "Baseline ID",
             "multiple object types",
             "naming basis; use a field/journal",
+            "range(1, 11)",
         ),
-        "assets/templates/notation-ledger.md": (
-            "Naming basis / convention",
-            "field standard:",
-            "mathematical convention:",
-            "English initial:",
-            "semantic mnemonic:",
-            "project-specific:",
-            "Introduction Notation",
+        "scripts/create_latex_project.py": (
+            "--baseline-id",
+            "--revision",
+            "revision_folder",
+            "manuscript.tex",
+            "Frozen snapshot",
+            "original_main_file",
         ),
         "references/living-user-rules.md": (
             "semantically meaningful English initial or mnemonic",
-            "Record that naming basis in the Markdown notation ledger",
+            "Record that naming basis",
+            "one identifiable theme and reader-facing purpose",
+            "Avoid rigid stacks of short declarative sentences",
+            "Order exposition by scientific dependency",
         ),
         "references/source-rule-coverage.md": (
             "8bc7e1d",
             "## Legacy-version coverage",
             "## Web-conversation coverage",
             "## Reconciled conflicts",
+            "## Structural migration ledger",
+            "assets/templates/notation-ledger.md",
+            "assets/templates/section-role-matrix.md",
+            "references/manuscript-quality-gates.md",
+            "references/stages/journal-paper-writing-and-figures.md",
             "three to five concrete",
             r"\mathbb H^{\infty}",
         ),
@@ -351,6 +527,10 @@ def audit_repository_contract(root: Path, errors: list[str]) -> None:
         "references/latex-template-workflow.md": (
             "assets/latex-templates/sources.json",
             "TEMPLATE_LOCK.json",
+            "--baseline-id <short-baseline-id> --revision <revision>",
+            "manuscript.tex",
+            "manuscript.pdf",
+            "audit_artifact_names.py",
             "picins.sty",
             "Do not patch the template around the problem.",
             "default for every Chinese-language paper",
@@ -365,6 +545,29 @@ def audit_repository_contract(root: Path, errors: list[str]) -> None:
             "model-predictive-control/",
             "data-completion/",
             "One file represents one paper.",
+            "published-style exemplar case",
+            "source-tagged excerpts",
+        ),
+        "references/style-exemplars/README.md": (
+            "cross-case style synthesis",
+            "task-grouped files under `../../cases/`",
+            "one-paper case",
+            "not authority for a",
+        ),
+        "references/style-exemplars/corpus-index.md": (
+            "P01",
+            "P09",
+            "cases/fault-diagnosis",
+        ),
+        "references/style-exemplars/architecture-and-narrative.md": (
+            "macro-to-micro",
+            "cause",
+            "purpose",
+        ),
+        "references/style-exemplars/sentence-and-transition-exemplars.md": (
+            "Sentence-form",
+            "transition",
+            "cases/",
         ),
         "references/domains/README.md": (
             "model predictive control",
@@ -372,33 +575,42 @@ def audit_repository_contract(root: Path, errors: list[str]) -> None:
         ),
         "README.md": (
             "## 目录",
-            "## 两阶段闭环规则",
-            "### 阶段 1：构思探索闭环",
-            "Gate A：现有工作重合",
-            "### 阶段 2：论文写作闭环",
-            "Gate 0：初始化",
-            "Gate 3 的七项小节检查缺一不可",
-            "DRAFT -> CHECK -> FAIL -> REVISE -> CHECK",
-            "## 仓库结构",
-            "## 可编辑科学图件",
-            "## 官方 LaTeX 模板",
-            "## 验证与前向测试",
-            "## 版本与发布",
+            "## 四阶段总览",
+            "## Baseline ID、revision 与 FROZEN",
+            "revision 文件夹",
+            "## Stage 1 loops",
+            "| I1 | 现有工作重合 |",
+            "## Stage 2 loops",
+            "MANUSCRIPT_CONTEXT.md",
+            "## Stage 3 loops",
+            "| W10 | 全文对齐性 |",
+            "## Stage 4 loops",
+            "| D1 | 图注正文闭合 |",
+            "## 科研图构图规则",
+            "## 参考图案例库",
+            "assets/icons/",
+            "audit_artifact_names.py",
+            "## 文件职责与选读",
+            "## 验证与版本",
         ),
         "README.en.md": (
             "## Contents",
-            "## Two-stage loop rules",
-            "### Stage 1: idea-exploration loop",
-            "Gate A: prior-art overlap",
-            "### Stage 2: manuscript-writing loop",
-            "Gate 0: initialize",
-            "All seven Gate 3 subsection audits are mandatory",
-            "DRAFT -> CHECK -> FAIL -> REVISE -> CHECK",
-            "## Repository map",
-            "## Editable scientific figures",
-            "## Official LaTeX templates",
-            "## Validation and forward tests",
-            "## Versioning and release",
+            "## Four-stage workflow",
+            "## Baseline identity",
+            "revision folder",
+            "## Stage 1 loops",
+            "## Stage 2 loops",
+            "MANUSCRIPT_CONTEXT.md",
+            "## Stage 3 loops",
+            "| W10 | Manuscript alignment |",
+            "## Stage 4 loops",
+            "| D1 | Figure–caption–text closure |",
+            "## Scientific-figure composition",
+            "## Figure-exemplar library",
+            "assets/icons/",
+            "audit_artifact_names.py",
+            "## File boundaries",
+            "## Validation and versioning",
         ),
     }
     for relative, required_fragments in content_contracts.items():
@@ -421,14 +633,24 @@ def audit_repository_contract(root: Path, errors: list[str]) -> None:
                 "stage1-prior-art",
                 "stage1-assumptions",
                 "stage1-model-specific-analysis",
-                "stage2-editable-vector-figure",
-                "stage2-ai-draft-palette-reconstruction",
-                "stage2-official-latex-template",
-                "stage2-chinese-default-template",
-                "stage2-notation-registry-loop",
-                "stage2-meaningful-symbol-selection-loop",
-                "stage2-problem-contribution-loop",
-                "stage2-seven-priority-writing-loop",
+                "stage2-versioned-artifact-naming",
+                "stage4-editable-vector-figure",
+                "stage4-ai-draft-palette-reconstruction",
+                "stage4-task-workflow-hierarchy",
+                "stage4-principle-reference-search",
+                "stage4-icon-source-license-browser",
+                "stage4-three-category-reference-library",
+                "stage4-experiment-plot-narration",
+                "stage2-paper-conception-freeze",
+                "stage3-official-latex-template",
+                "stage3-chinese-default-template",
+                "stage3-notation-registry-loop",
+                "stage3-meaningful-symbol-selection-loop",
+                "stage3-problem-contribution-loop",
+                "stage3-ten-priority-writing-loop",
+                "stage3-style-exemplar-boundary",
+                "skill-file-boundary-routing",
+                "skill-detail-preservation-refactor",
                 "legacy-rule-restoration",
                 "web-writing-scope-boundary",
                 "case-transfer-boundary",
@@ -529,12 +751,44 @@ def audit_template_registry(root: Path, errors: list[str]) -> None:
 
 
 def audit_writing_loop_fixture(root: Path, errors: list[str]) -> None:
-    script = root / "scripts" / "audit_writing_loops.py"
-    fixture = root / "tests" / "fixtures" / "writing-loop"
-    if not script.is_file() or not fixture.is_dir():
+    writing_script = root / "scripts" / "audit_writing_loops.py"
+    naming_script = root / "scripts" / "audit_artifact_names.py"
+    fixture = root / "tests" / "fixtures" / "writing-loop-fixture-r2"
+    if (
+        not writing_script.is_file()
+        or not naming_script.is_file()
+        or not fixture.is_dir()
+    ):
         return
+
+    naming = subprocess.run(
+        [
+            sys.executable,
+            "-X",
+            "utf8",
+            str(naming_script),
+            str(fixture),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if naming.returncode != 0:
+        detail = naming.stdout.strip() or naming.stderr.strip()
+        errors.append("artifact-name fixture failed: " + detail)
+        return
+
     completed = subprocess.run(
-        [sys.executable, "-X", "utf8", str(script), str(fixture), "--json"],
+        [
+            sys.executable,
+            "-X",
+            "utf8",
+            str(writing_script),
+            str(fixture),
+            "--json",
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -555,19 +809,82 @@ def audit_writing_loop_fixture(root: Path, errors: list[str]) -> None:
             + "; ".join(str(item) for item in report["errors"])
         )
 
-    negative_ledger = fixture / "NOTATION_LEDGER_TYPE_CONFLICT.md"
-    if not negative_ledger.is_file():
+    with tempfile.TemporaryDirectory(prefix="artifact-name-conflict-") as temp_name:
+        temp_root = Path(temp_name) / "writing-loop-fixture-r2"
+        temp_root.mkdir()
+        for source_name in (
+            "manuscript.tex",
+            "MANUSCRIPT_CONTEXT.md",
+            "WRITING_LOOP_LOG.md",
+        ):
+            shutil.copy2(fixture / source_name, temp_root / source_name)
+        temp_context = temp_root / "MANUSCRIPT_CONTEXT.md"
+        conflict_text = temp_context.read_text(encoding="utf-8").replace(
+            "Main manuscript source: `manuscript.tex`",
+            "Main manuscript source: `main.tex`",
+            1,
+        )
+        temp_context.write_text(conflict_text, encoding="utf-8")
+        naming_negative = subprocess.run(
+            [
+                sys.executable,
+                "-X",
+                "utf8",
+                str(naming_script),
+                str(temp_root),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        try:
+            naming_negative_report = json.loads(naming_negative.stdout)
+        except json.JSONDecodeError as exc:
+            errors.append(
+                "artifact-name conflict fixture returned invalid JSON: "
+                + str(exc)
+            )
+            return
+        naming_errors = [
+            str(item) for item in naming_negative_report.get("errors", [])
+        ]
+        if naming_negative.returncode == 0 or not any(
+            "Main manuscript source must be manuscript.tex" in item
+            for item in naming_errors
+        ):
+            errors.append(
+                "artifact-name conflict fixture did not reject generic main.tex"
+            )
+
+    negative_context = fixture / "MANUSCRIPT_CONTEXT_TYPE_CONFLICT.md"
+    if not negative_context.is_file():
         return
     with tempfile.TemporaryDirectory(prefix="writing-loop-conflict-") as temp_name:
-        temp_root = Path(temp_name)
-        shutil.copy2(fixture / "main.tex", temp_root / "main.tex")
+        temp_root = Path(temp_name) / "writing-loop-fixture-r2"
+        temp_root.mkdir()
         shutil.copy2(
-            fixture / "SECTION_ROLE_MATRIX.md",
-            temp_root / "SECTION_ROLE_MATRIX.md",
+            fixture / "manuscript.tex",
+            temp_root / "manuscript.tex",
         )
-        shutil.copy2(negative_ledger, temp_root / "NOTATION_LEDGER.md")
+        shutil.copy2(
+            fixture / "WRITING_LOOP_LOG.md",
+            temp_root / "WRITING_LOOP_LOG.md",
+        )
+        shutil.copy2(
+            negative_context,
+            temp_root / "MANUSCRIPT_CONTEXT.md",
+        )
         negative = subprocess.run(
-            [sys.executable, "-X", "utf8", str(script), str(temp_root), "--json"],
+            [
+                sys.executable,
+                "-X",
+                "utf8",
+                str(writing_script),
+                str(temp_root),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",

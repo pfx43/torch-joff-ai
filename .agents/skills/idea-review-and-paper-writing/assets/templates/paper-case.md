@@ -8,7 +8,7 @@
 - Target journal:
 - Manuscript language:
 - Project path or link:
-- Active `MANUSCRIPT_CONTEXT.md`:
+- Active revision-folder `MANUSCRIPT_CONTEXT.md`:
 - Related domain guidance:
 - Last explicit decision date:
 

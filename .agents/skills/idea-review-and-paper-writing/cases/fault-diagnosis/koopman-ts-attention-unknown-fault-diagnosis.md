@@ -8,7 +8,7 @@
 - Target journal: IEEE Transactions on Fuzzy Systems
 - Manuscript language: Chinese and/or English, depending on the active task
 - Project path or link: unresolved
-- Active `MANUSCRIPT_CONTEXT.md`: unresolved
+- Active revision-folder `MANUSCRIPT_CONTEXT.md`: unresolved
 - Related domain guidance: `references/domains/fault-diagnosis.md`
 - Last explicit decision date: 2026-07-29
 

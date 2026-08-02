@@ -1,6 +1,6 @@
 # Fault diagnosis
 
-Read this document for fault detection, isolation, estimation, residual generation, dynamic thresholds, post-filtering, Koopman lifting, T–S fuzzy diagnosis, and related unknown-fault research. It contains both domain-wide constraints and route-specific options. Confirm the selected route in the active `MANUSCRIPT_CONTEXT.md`.
+Read this document for fault detection, isolation, estimation, residual generation, dynamic thresholds, post-filtering, Koopman lifting, T–S fuzzy diagnosis, and related unknown-fault research. It contains both domain-wide constraints and route-specific options. Confirm the selected route in the active versioned manuscript context.
 
 ## Contents
 
@@ -244,7 +244,7 @@ Do not report planned results as observed outcomes.
 
 ## Project-context requirements
 
-Record the following in `MANUSCRIPT_CONTEXT.md`:
+Record the following fault-diagnosis decisions in the active versioned manuscript context:
 
 - whether training uses only normal data;
 - exactly which fault properties are unknown;

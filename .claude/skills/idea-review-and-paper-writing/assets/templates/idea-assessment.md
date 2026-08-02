@@ -67,4 +67,4 @@ Use this Stage 1 artifact for one candidate paper idea or one major technical ro
 - Decision:
 - Reason:
 - Next Stage 1 action:
-- Conditions required before Stage 2:
+- Conditions required before Stage 2 paper conception:

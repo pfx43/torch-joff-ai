@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit Stage-2 section, notation, abstract, and contribution control loops."""
+"""Audit the frozen Stage-2 baseline and Stage-3 manuscript-writing loops."""
 
 from __future__ import annotations
 
@@ -90,8 +90,18 @@ def prose_word_count(text: str) -> int:
     return len(WORD_RE.findall(cleaned))
 
 
-def parse_markdown_table(path: Path) -> tuple[list[str], list[dict[str, str]]]:
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+def extract_markdown_section(text: str, heading: str) -> str | None:
+    match = re.search(
+        rf"^##\s+{re.escape(heading)}\s*$"
+        rf"(?P<body>.*?)(?=^##\s+|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    return match.group("body") if match else None
+
+
+def parse_markdown_table_text(text: str) -> tuple[list[str], list[dict[str, str]]]:
+    lines = text.splitlines()
     for index, line in enumerate(lines):
         if not line.strip().startswith("|"):
             continue
@@ -115,6 +125,18 @@ def parse_markdown_table(path: Path) -> tuple[list[str], list[dict[str, str]]]:
             rows.append(dict(zip(headers, cells)))
         return headers, rows
     return [], []
+
+
+def parse_markdown_table(
+    path: Path, section: str | None = None
+) -> tuple[list[str], list[dict[str, str]]]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if section:
+        block = extract_markdown_section(text, section)
+        if block is None:
+            return [], []
+        text = block
+    return parse_markdown_table_text(text)
 
 
 def normalized_symbol(symbol: str) -> str:
@@ -233,7 +255,7 @@ def audit_tex(path: Path, errors: list[str], warnings: list[str]) -> tuple[int, 
     return problem_count, contribution_count
 
 
-def audit_notation_ledger(
+def audit_notation_registry(
     path: Path, errors: list[str], warnings: list[str]
 ) -> None:
     required = {
@@ -247,7 +269,7 @@ def audit_notation_ledger(
         "First definition",
         "Scope",
     }
-    headers, rows = parse_markdown_table(path)
+    headers, rows = parse_markdown_table(path, "Notation registry")
     missing = sorted(required.difference(headers))
     if missing:
         errors.append(
@@ -426,120 +448,289 @@ def audit_notation_ledger(
             )
 
 
-def audit_role_matrix(
+def metadata_value(text: str, label: str) -> str:
+    match = re.search(
+        rf"^-\s*{re.escape(label)}:\s*(?P<value>.*?)\s*$",
+        text,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    return match.group("value").strip() if match else ""
+
+
+def count_markdown_tables(text: str) -> int:
+    lines = text.splitlines()
+    return sum(
+        1
+        for index, line in enumerate(lines[:-1])
+        if line.strip().startswith("|")
+        and re.fullmatch(r"\|?[\s:|-]+\|?", lines[index + 1].strip())
+    )
+
+
+def audit_context(
     path: Path,
     problem_count: int,
     contribution_count: int,
     errors: list[str],
     warnings: list[str],
+) -> tuple[str, str]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    required_sections = (
+        "Context identity and control",
+        "Background and task baseline",
+        "Stage 1 evidence boundary",
+        "Problem–contribution–result alignment",
+        "Technical main line and causal story",
+        "Theoretical route and dependency",
+        "Model-definition order",
+        "Loss and optimization baseline",
+        "Notation registry",
+        "Terminology and abbreviation registry",
+        "Chapter and subsection blueprint",
+        "Planned narrative and paragraph progression",
+        "Stage 3 LaTeX schematic requirements",
+        "Stage 4 evidence and figure handoff",
+        "Style calibration plan",
+        "Stage 2 conception gate record",
+    )
+    for section in required_sections:
+        if extract_markdown_section(text, section) is None:
+            errors.append(f"{path.name}: missing Stage-2 section {section!r}")
+
+    status = metadata_value(text, "Context status").upper()
+    baseline_id = metadata_value(text, "Baseline ID")
+    revision = metadata_value(text, "Context revision")
+    revision_folder = metadata_value(text, "Revision folder")
+    if status != "FROZEN":
+        errors.append(f"{path.name}: Context status must be FROZEN before Stage 3")
+    if not baseline_id:
+        errors.append(f"{path.name}: Baseline ID is blank")
+    if not revision:
+        errors.append(f"{path.name}: Context revision is blank")
+    elif not revision.isdigit() or int(revision) < 1:
+        errors.append(f"{path.name}: Context revision must be a positive integer")
+    if baseline_id and revision and revision_folder != f"{baseline_id}-r{revision}":
+        errors.append(
+            f"{path.name}: Revision folder must be {baseline_id}-r{revision}"
+        )
+
+    if re.search(r"\|[^\n]*\|\s*(?:BLOCKED|FAIL)\s*\|\s*$", text, re.MULTILINE):
+        errors.append(f"{path.name}: frozen context contains unresolved BLOCKED/FAIL table status")
+    if re.search(r"^-\s*[^:\n]+:\s*$", text, re.MULTILINE):
+        warnings.append(f"{path.name}: frozen context contains blank list-valued fields")
+    if re.search(r"Actual top-level sequence:\s*$", text, re.MULTILINE):
+        errors.append(f"{path.name}: actual top-level chapter sequence is blank")
+    if count_markdown_tables(text) < 12:
+        errors.append(f"{path.name}: Stage-2 context is missing required decision tables")
+
+    alignment = extract_markdown_section(text, "Problem–contribution–result alignment") or ""
+    problem_ids = set(re.findall(r"\|\s*P(\d+)\s*\|", alignment))
+    contribution_ids = set(re.findall(r"\|[^\n]*\|\s*C(\d+)\s*\|", alignment))
+    if len(problem_ids) < max(problem_count, 1):
+        errors.append(
+            f"{path.name}: context records {len(problem_ids)} central problem IDs; "
+            f"the manuscript requires {problem_count or 'at least one'}"
+        )
+    if len(contribution_ids) < max(contribution_count, 1):
+        errors.append(
+            f"{path.name}: context records {len(contribution_ids)} contribution IDs; "
+            f"the manuscript requires {contribution_count or 'at least one'}"
+        )
+
+    audit_notation_registry(path, errors, warnings)
+    return baseline_id, revision
+
+
+def audit_evidence_rows(
+    path: Path,
+    section: str,
+    required_fields: tuple[str, ...],
+    errors: list[str],
+) -> None:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    block = extract_markdown_section(text, section)
+    if block is None:
+        errors.append(f"{path.name}: missing Stage-3 section {section!r}")
+        return
+    headers, rows = parse_markdown_table_text(block)
+    missing = [field for field in required_fields if field not in headers]
+    if missing:
+        errors.append(f"{path.name}: {section} table lacks " + ", ".join(missing))
+        return
+    if not rows:
+        errors.append(f"{path.name}: {section} table is empty")
+        return
+    for row_number, row in enumerate(rows, start=1):
+        if row.get("Status", "").strip().upper() != "PASS":
+            continue
+        empty = [field for field in required_fields if not row.get(field, "").strip()]
+        if empty:
+            errors.append(
+                f"{path.name}: {section} row {row_number} is PASS but lacks "
+                + ", ".join(empty)
+            )
+        bare = [
+            field
+            for field in required_fields
+            if field not in {"Status", "Last checked", "Subsection", "Paragraph ID"}
+            and row.get(field, "").strip().upper() == "PASS"
+        ]
+        if bare:
+            errors.append(
+                f"{path.name}: {section} row {row_number} records bare PASS "
+                "without evidence for " + ", ".join(bare)
+            )
+
+
+def audit_writing_log(
+    path: Path,
+    context_baseline: str,
+    context_revision: str,
+    errors: list[str],
+    warnings: list[str],
 ) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     required_markers = (
-        "## Chapter arrangement conformance",
-        "Actual top-level sequence:",
-        "## Subsection writing-loop record",
-        "Chapter arrangement",
-        "Sentence-to-sentence logic",
-        "Narrative causality",
-        "Symbol consistency",
-        "Formula rigor",
-        "Model completeness",
-        "Training / validation / testing / deployment clarity",
-        "Evidence inspected and revision action",
+        "## Baseline binding",
+        "## Paragraph purpose and progression map",
+        "## Subsection loop record",
+        "## LaTeX schematic inventory",
+        "## Manuscript-wide alignment record",
+        "## Stage 3 gate record",
+        "## Context-deviation log",
+        "基线一致性",
+        "章节先后性",
+        "叙事逻辑性",
+        "表达忌生硬",
+        "语句忌空洞",
+        "符号一致性",
+        "名词专有化",
+        "公式严谨性",
+        "示图完整性",
+        "全文对齐性",
     )
     for marker in required_markers:
         if marker not in text:
-            errors.append(f"{path.name}: missing writing-loop marker {marker!r}")
+            errors.append(f"{path.name}: missing Stage-3 writing-loop marker {marker!r}")
 
-    if "BLOCKED" in text:
-        errors.append(f"{path.name}: contains unresolved BLOCKED status")
-    if "FAIL" in text:
-        errors.append(f"{path.name}: contains unresolved FAIL status")
-    if re.search(r"Actual top-level sequence:\s*$", text, re.MULTILINE):
-        errors.append(f"{path.name}: actual top-level chapter sequence is blank")
+    if re.search(r"\|[^\n]*\|\s*(?:BLOCKED|FAIL)\s*\|\s*$", text, re.MULTILINE):
+        errors.append(f"{path.name}: contains unresolved BLOCKED/FAIL table status")
+    log_status = metadata_value(text, "Log status").upper()
+    if log_status != "PASS":
+        errors.append(f"{path.name}: Log status must be PASS for delivery")
 
-    table_count = 0
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
-        if not line.strip().startswith("|") or index + 1 >= len(lines):
-            continue
-        if re.fullmatch(r"\|?[\s:|-]+\|?", lines[index + 1].strip()):
-            table_count += 1
-    if table_count < 4:
+    bound_id = metadata_value(text, "Baseline ID")
+    bound_revision = metadata_value(text, "Context revision")
+    bound_folder = metadata_value(text, "Revision folder")
+    if not bound_id or bound_id != context_baseline:
+        errors.append(f"{path.name}: baseline binding does not match the versioned context")
+    if not bound_revision or bound_revision != context_revision:
+        errors.append(f"{path.name}: revision binding does not match the versioned context")
+    if (
+        context_baseline
+        and context_revision
+        and bound_folder != f"{context_baseline}-r{context_revision}"
+    ):
         errors.append(
-            f"{path.name}: expected problem, section, subsection-loop, and gate tables"
+            f"{path.name}: revision-folder binding does not match the frozen context"
         )
+    if re.search(r"Last synchronized:\s*$", text, re.MULTILINE):
+        warnings.append(f"{path.name}: synchronization date is blank")
+    if count_markdown_tables(text) < 6:
+        errors.append(f"{path.name}: expected six Stage-3 control tables")
 
-    loop_match = re.search(
-        r"## Subsection writing-loop record(?P<body>.*?)(?=\n## |\Z)",
-        text,
-        re.DOTALL,
+    audit_evidence_rows(
+        path,
+        "Paragraph purpose and progression map",
+        (
+            "Paragraph ID",
+            "Subsection",
+            "Single theme or purpose",
+            "Why this paragraph is needed",
+            "Logical or causal link from previous paragraph",
+            "Abstraction level and progression",
+            "Reader-facing output or supported claim",
+            "Evidence inspected and revision action",
+            "Last checked",
+            "Status",
+        ),
+        errors,
     )
-    if loop_match:
-        table_lines = [
-            line
-            for line in loop_match.group("body").splitlines()
-            if line.strip().startswith("|")
-        ]
-        if len(table_lines) >= 2:
-            headers = [
-                cell.strip()
-                for cell in table_lines[0].strip().strip("|").split("|")
-            ]
-            audit_fields = (
-                "Chapter arrangement",
-                "Sentence-to-sentence logic",
-                "Narrative causality",
-                "Symbol consistency",
-                "Formula rigor",
-                "Model completeness",
-                "Training / validation / testing / deployment clarity",
-                "Evidence inspected and revision action",
-                "Last checked",
+    loop_block = extract_markdown_section(text, "Subsection loop record")
+    if loop_block is None:
+        errors.append(f"{path.name}: missing Stage-3 subsection loop table")
+    else:
+        headers, rows = parse_markdown_table_text(loop_block)
+        required_loop_fields = (
+            "Subsection",
+            "Loop ID",
+            "概括词语",
+            "Evidence inspected",
+            "Conflict found",
+            "Revision/no-change reason",
+            "Affected location",
+            "Last checked",
+            "Status",
+        )
+        missing = [field for field in required_loop_fields if field not in headers]
+        if missing:
+            errors.append(
+                f"{path.name}: Subsection loop record lacks " + ", ".join(missing)
             )
-            for row_number, line in enumerate(table_lines[2:], start=1):
-                cells = [
-                    cell.strip() for cell in line.strip().strip("|").split("|")
-                ]
-                if len(cells) != len(headers):
-                    continue
-                row = dict(zip(headers, cells))
+        elif not rows:
+            errors.append(f"{path.name}: Subsection loop record is empty")
+        else:
+            expected_loops = {f"W{index}" for index in range(1, 11)}
+            observed: dict[str, set[str]] = defaultdict(set)
+            for row_number, row in enumerate(rows, start=1):
+                subsection = row.get("Subsection", "").strip()
+                loop_id = row.get("Loop ID", "").strip().upper()
+                if subsection and loop_id:
+                    observed[subsection].add(loop_id)
                 if row.get("Status", "").strip().upper() != "PASS":
                     continue
-                empty = [field for field in audit_fields if not row.get(field, "")]
+                empty = [
+                    field
+                    for field in required_loop_fields
+                    if not row.get(field, "").strip()
+                ]
                 if empty:
                     errors.append(
                         f"{path.name}: subsection-loop row {row_number} is PASS "
                         "but lacks " + ", ".join(empty)
                     )
-                bare = [
-                    field
-                    for field in audit_fields[:-1]
-                    if row.get(field, "").strip().upper() == "PASS"
-                ]
-                if bare:
+                for field in (
+                    "概括词语",
+                    "Evidence inspected",
+                    "Conflict found",
+                    "Revision/no-change reason",
+                    "Affected location",
+                ):
+                    if row.get(field, "").strip().upper() == "PASS":
+                        errors.append(
+                            f"{path.name}: subsection-loop row {row_number} "
+                            f"records bare PASS for {field}"
+                        )
+            if not observed:
+                errors.append(f"{path.name}: no subsection has recorded loops")
+            for subsection, loop_ids in observed.items():
+                missing_loops = expected_loops.difference(loop_ids)
+                extra_loops = loop_ids.difference(expected_loops)
+                if missing_loops:
                     errors.append(
-                        f"{path.name}: subsection-loop row {row_number} records "
-                        "bare PASS without evidence for " + ", ".join(bare)
+                        f"{path.name}: subsection {subsection!r} lacks loops "
+                        + ", ".join(sorted(missing_loops))
                     )
-    if problem_count:
-        problem_ids = set(re.findall(r"\|\s*P(\d+)\s*\|", text))
-        if len(problem_ids) < problem_count:
-            errors.append(
-                f"{path.name}: records {len(problem_ids)} problem IDs but "
-                f"the manuscript states {problem_count} subproblems"
-            )
-    if contribution_count:
-        contribution_ids = set(re.findall(r"\|\s*C(\d+)\s*\|", text))
-        if len(contribution_ids) < contribution_count:
-            errors.append(
-                f"{path.name}: records {len(contribution_ids)} contribution IDs "
-                f"but the manuscript states {contribution_count} contributions"
-            )
-    if "Last synchronized:" in text and re.search(
-        r"Last synchronized:\s*$", text, re.MULTILINE
-    ):
-        warnings.append(f"{path.name}: synchronization date is blank")
+                if extra_loops:
+                    errors.append(
+                        f"{path.name}: subsection {subsection!r} has unknown loops "
+                        + ", ".join(sorted(extra_loops))
+                    )
+
+    gates = extract_markdown_section(text, "Stage 3 gate record") or ""
+    for gate in ("S3-0", "S3-1", "S3-2", "S3-3", "S3-4", "S3-5"):
+        if not re.search(rf"\|\s*{re.escape(gate)}\s*:", gates):
+            errors.append(f"{path.name}: Stage-3 gate record lacks {gate}")
 
 
 def audit(root: Path, requested_tex: str | None) -> dict[str, list[str]]:
@@ -554,20 +745,32 @@ def audit(root: Path, requested_tex: str | None) -> dict[str, list[str]]:
 
     problem_count, contribution_count = audit_tex(tex_path, errors, warnings)
 
-    ledger = root / "NOTATION_LEDGER.md"
-    if not ledger.is_file():
-        errors.append("NOTATION_LEDGER.md is missing")
+    context = root / "MANUSCRIPT_CONTEXT.md"
+    baseline_id = ""
+    context_revision = ""
+    if not context.is_file():
+        errors.append(
+            "revision context is missing: MANUSCRIPT_CONTEXT.md"
+        )
     else:
-        audit_notation_ledger(ledger, errors, warnings)
-
-    matrix = root / "SECTION_ROLE_MATRIX.md"
-    if not matrix.is_file():
-        errors.append("SECTION_ROLE_MATRIX.md is missing")
-    else:
-        audit_role_matrix(
-            matrix,
+        baseline_id, context_revision = audit_context(
+            context,
             problem_count,
             contribution_count,
+            errors,
+            warnings,
+        )
+
+    writing_log = root / "WRITING_LOOP_LOG.md"
+    if not writing_log.is_file():
+        errors.append(
+            "revision writing log is missing: WRITING_LOOP_LOG.md"
+        )
+    else:
+        audit_writing_log(
+            writing_log,
+            baseline_id,
+            context_revision,
             errors,
             warnings,
         )

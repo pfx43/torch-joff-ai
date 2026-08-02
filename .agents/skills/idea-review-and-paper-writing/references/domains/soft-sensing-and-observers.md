@@ -1,6 +1,6 @@
 # Soft sensing and nonlinear observers
 
-Read this document for quality-variable prediction, virtual sensing, learned latent-state models, nonlinear observers, partial measurements, long-memory networks, and contraction-constrained estimation. Confirm project-specific state partitions, output maps, and stability routes in `MANUSCRIPT_CONTEXT.md`.
+Read this document for quality-variable prediction, virtual sensing, learned latent-state models, nonlinear observers, partial measurements, long-memory networks, and contraction-constrained estimation. Confirm project-specific state partitions, output maps, and stability routes in the active versioned manuscript context.
 
 ## Contents
 
@@ -128,7 +128,7 @@ Use RMSE, MAE, coefficient-of-determination, delay-aware metrics, or uncertainty
 
 ## Project-context requirements
 
-Record the following in `MANUSCRIPT_CONTEXT.md`:
+Record the following in the active versioned manuscript context:
 
 - physical measurements, delayed quality labels, and unavailable states;
 - interpretation of every learned hidden or lifted state;

@@ -8,7 +8,7 @@
 - Target journal: unresolved
 - Manuscript language: Chinese and/or English, depending on the active task
 - Project path or link: unresolved
-- Active `MANUSCRIPT_CONTEXT.md`: unresolved
+- Active revision-folder `MANUSCRIPT_CONTEXT.md`: unresolved
 - Related domain guidance: `references/domains/soft-sensing-and-observers.md`
 - Last explicit decision date: 2026-07-29
 

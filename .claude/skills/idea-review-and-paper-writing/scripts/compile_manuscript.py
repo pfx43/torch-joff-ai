@@ -61,7 +61,7 @@ def main() -> int:
     render_dir = (
         Path(args.render_dir).resolve()
         if args.render_dir
-        else tex_path.parent / f"{tex_path.stem}-rendered"
+        else tex_path.parent / "rendered"
     )
     render_dir.mkdir(parents=True, exist_ok=True)
     prefix = render_dir / "page"

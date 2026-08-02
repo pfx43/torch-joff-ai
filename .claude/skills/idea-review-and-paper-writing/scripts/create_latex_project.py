@@ -15,6 +15,7 @@ from fetch_latex_templates import CACHE_ROOT, fetch, load_manifest
 
 
 LOCK_NAME = "TEMPLATE_LOCK.json"
+BASELINE_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 PROTECTED_DIRECTIVE_RE = re.compile(
     r"^\s*\\(?:documentclass|usepackage|RequirePackage|input|includeonly|"
     r"bibliographystyle|pagestyle|thispagestyle|setlength|addtolength|"
@@ -51,9 +52,19 @@ def safe_member_name(name: str) -> PurePosixPath:
 
 
 def initialize(
-    template_id: str, record: dict, destination: Path, archive: Path
+    template_id: str,
+    record: dict,
+    destination: Path,
+    archive: Path,
+    baseline_id: str,
+    revision: int,
 ) -> None:
     destination = destination.resolve()
+    revision_folder = f"{baseline_id}-r{revision}"
+    if destination.name != revision_folder:
+        raise ValueError(
+            f"destination directory must be named {revision_folder}"
+        )
     if destination.exists() and any(destination.iterdir()):
         raise ValueError(f"destination is not empty: {destination}")
     destination.mkdir(parents=True, exist_ok=True)
@@ -86,18 +97,35 @@ def initialize(
             target.write_bytes(bundle.read(members[relative_name]))
             extracted.add(relative_name)
 
-    main_file = record["main_file"]
+    original_main_file = record["main_file"]
+    main_file = "manuscript.tex"
+    source_main = destination / original_main_file
+    target_main = destination / main_file
+    if source_main.resolve() != target_main.resolve():
+        source_main.rename(target_main)
+        extracted.discard(original_main_file)
+        extracted.add(main_file)
+    snapshot_comment = (
+        f"% Frozen snapshot: <{baseline_id}, {revision}>\n"
+    ).encode(record["encoding"])
+    source_bytes = target_main.read_bytes()
+    if not source_bytes.startswith(snapshot_comment):
+        target_main.write_bytes(snapshot_comment + source_bytes)
     protected_hashes = {
         name: sha256_file(destination / name)
         for name in sorted(extracted.difference({main_file}))
     }
     directives = protected_directives(destination / main_file, record["encoding"])
     lock = {
-        "schema_version": 1,
+        "schema_version": 3,
         "template_id": template_id,
         "display_name": record["display_name"],
         "source_url": record["download_url"],
         "archive_sha256": record["sha256"],
+        "baseline_id": baseline_id,
+        "context_revision": revision,
+        "revision_folder": revision_folder,
+        "original_main_file": original_main_file,
         "main_file": main_file,
         "main_encoding": record["encoding"],
         "protected_file_sha256": protected_hashes,
@@ -129,12 +157,24 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--template", required=True)
     parser.add_argument("--destination", required=True, type=Path)
+    parser.add_argument("--baseline-id", required=True)
+    parser.add_argument("--revision", required=True, type=int)
     parser.add_argument(
         "--offline",
         action="store_true",
         help="Require an already cached archive instead of downloading it.",
     )
     args = parser.parse_args()
+
+    if not BASELINE_RE.fullmatch(args.baseline_id):
+        parser.error(
+            "--baseline-id must be a lowercase slug matching "
+            "[a-z0-9]+(?:-[a-z0-9]+)*"
+        )
+    if len(args.baseline_id) > 24:
+        parser.error("--baseline-id must contain at most 24 characters")
+    if args.revision < 1:
+        parser.error("--revision must be a positive integer")
 
     manifest = load_manifest()
     templates = manifest["templates"]
@@ -154,7 +194,14 @@ def main() -> int:
             from fetch_latex_templates import verify
 
             verify(archive, record)
-        initialize(args.template, record, args.destination, archive)
+        initialize(
+            args.template,
+            record,
+            args.destination,
+            archive,
+            args.baseline_id,
+            args.revision,
+        )
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

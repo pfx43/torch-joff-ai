@@ -1,22 +1,34 @@
-# Stage 1: Idea exploration
+# Stage 1: Idea review
 
-This is the authoritative rule document for the idea-exploration stage. Read it whenever a new paper idea, model component, theoretical route, contribution statement, or major technical revision is being explored. These checks are iterative gates, not a one-time review performed after the paper is written.
-
-The purpose of this stage is to decide what is genuinely new, under which assumptions it is valid, whether it can be trained and implemented, what theoretical conclusion can be supported, and what evidence would be needed. It does not yet turn unresolved ideas into manuscript claims.
+Use this stage whenever a new paper idea, component, theoretical route,
+contribution, or major technical revision is being explored. Record each pass
+in `idea-assessment.md`; do not turn an unresolved idea into manuscript prose.
 
 ## Contents
 
-- Gate A: prior-art overlap
-- Gate B: assumptions and realizability
-- Gate C: model-specific theoretical contribution
-- Repetition points
-- Stage output
+- Loop overview
+- I1: prior-art overlap
+- I2: task and information boundary
+- I3: assumption and realizability closure
+- I4: theoretical nontriviality
+- I5: contribution main line
+- I6: maturity decision
+- Repetition points and output
 
-Use `assets/templates/idea-assessment.md` to record the result of applying these universal checks. Do not copy the checks themselves into a paper case.
+## Loop overview
 
-## Gate A: has the idea or result already been done?
+| ID | 概括词语 | 简述 |
+|---|---|---|
+| I1 | 现有工作重合 | 查清最接近工作是否已实质完成相同构造、机制或结果 |
+| I2 | 任务边界清楚 | 明确解决什么、不解决什么，以及哪些信息真实可得 |
+| I3 | 假设能够落地 | 检查训练、计算、在线使用和验证是否能在已声明假设下实现 |
+| I4 | 理论并非平凡 | 分析必须实质利用模型结构并产生可计算、可证明或可检验结果 |
+| I5 | 贡献主线集中 | 将创新收敛为两到三个相互衔接的问题—贡献主题 |
+| I6 | 成熟度不夸大 | 区分 confirmed、exploratory、alternative、rejected 和 unresolved |
 
-Before calling an idea a contribution, define the candidate novelty at the correct technical granularity:
+## I1: prior-art overlap — 现有工作重合
+
+Define the candidate novelty at the correct technical granularity:
 
 - problem and task;
 - model class and information setting;
@@ -24,87 +36,110 @@ Before calling an idea a contribution, define the candidate novelty at the corre
 - mathematical construction or mechanism;
 - theoretical result or guarantee;
 - implementation route;
-- experimental capability.
+- observable capability.
 
-Search and compare current primary literature. Record the search date, databases or sources, search terms, closest papers, and the exact overlap and difference. Distinguish:
+Search current primary literature and record the search date, databases or
+sources, terms, closest papers, exact overlap, and exact difference. Distinguish
+the same method/result under equivalent assumptions from a related method,
+shared components with a new mechanism, an adjacent application, and a merely
+notational or packaging difference.
 
-- the same method and substantially the same result;
-- a related method under different assumptions;
-- the same model components but a different mechanism or guarantee;
-- an adjacent application without the proposed analysis;
-- a claimed difference that is only notation, packaging, or module combination.
+Do not infer novelty from an architecture combination or from the absence of an
+identical complete network. Identify what is newly constructed, derived,
+guaranteed, made computable, or made possible and why that change matters.
+Until the comparison is sufficient, keep novelty `unresolved` or `exploratory`.
+Avoid absolute priority language; use exact verbs such as constructs,
+establishes, derives, provides, or applies when supported.
 
-If prior work already contains the same substantive construction or theoretical result under equivalent assumptions, that item cannot be claimed as an original contribution. It may remain background, an implementation choice, a baseline, or the starting point for a genuinely new extension.
+## I2: task and information boundary — 任务边界清楚
 
-Conversely, sharing high-level components with prior work does not automatically eliminate novelty. The paper must identify a defensible novelty delta: what is newly constructed, derived, guaranteed, made computable, or made possible, and why the difference is technically consequential.
+State the exact scientific or engineering task before selecting modules. Record:
 
-Do not infer novelty merely because no paper has exactly the same complete architecture. Almost every implementation differs in some detail. The relevant question is whether the paper produces a new nontrivial mechanism, analysis, condition, or capability beyond the closest prior work.
+- the target object, input, output, time setting, and operating condition;
+- what the paper will establish or compute;
+- adjacent tasks explicitly excluded;
+- quantities that are measured, known, estimated, learned, bounded, or
+  unavailable during design and use;
+- labels, future information, counterfactual trajectories, fault variables, or
+  physical parameters that cannot be assumed available.
 
-Until the literature comparison is sufficiently complete, mark novelty as `unresolved` or `exploratory`. Avoid absolute priority claims such as “the first,” “for the first time,” “pioneering,” and “fills the gap”; state the exact novelty delta with verbs such as “constructs,” “establishes,” “derives,” “provides,” or “applies ... to ...”.
+Do not silently add a fault direction, clean reference, true latent state, test
+label, future sample, or other unavailable quantity to rescue the route. When a
+domain guide offers mutually exclusive information settings, record them as
+separate alternatives and explain how each changes the claim.
 
-## Gate B: what assumptions are required, and can the idea be implemented?
+## I3: assumption and realizability closure — 假设能够落地
 
-For each candidate idea or result, complete the authoritative audit in `references/technical-validity-and-implementation.md`. Record its outcome in the idea assessment under four headings: information and assumptions, trainability, offline/online computation, and validation.
+Apply `references/technical-validity-and-implementation.md`. For every
+assumption ask whether it is physically plausible, observable or estimable,
+proof-only or method-essential, stable under the intended operating condition,
+and robust to approximate satisfaction.
 
-For every assumption, ask:
+Trace a credible path from admitted information to numerical computation,
+optimization or algorithm execution, and online use. Identify design variables,
+data-determined quantities, offline computations, online computations,
+differentiability, complexity, initialization, and any higher-order derivative
+or repeated optimization cost.
 
-- Is it physically plausible?
-- Can it be checked or estimated from the available data?
-- Is it required only for proof convenience, or is it inherent to the method?
-- Does the online algorithm need information that the problem statement declares unavailable?
-- Does the assumption become unrealistic under the target operating conditions?
-- What happens when the assumption is violated or only approximately satisfied?
+This is a feasibility audit, not experimental-section writing. Stage 1 may
+record what kind of evidence would be needed, but it does not draft protocols,
+results, or comparisons. Preserve an interesting but unrealizable route as
+`exploratory` rather than disguising it as a completed method.
 
-When the matching domain guide defines mutually exclusive routes, surface them explicitly in the feasibility result. Do not silently add structure to rescue an idea while continuing to describe the original information setting; classify the added assumption as a separate alternative and state how it changes the claim.
+## I4: theoretical nontriviality — 理论并非平凡
 
-An idea is not ready to become a manuscript contribution until there is a credible path from the stated information and assumptions to training, numerical computation, online use, and validation. If a route is theoretically interesting but not yet realizable, preserve it as `exploratory` rather than presenting it as a completed method.
+A model-specific derivation may be a contribution, but model uniqueness is not
+sufficient. Require the analysis to:
 
-Use `technical-validity-and-implementation.md` for the complete technical audit.
+- derive a consequence that is not true by definition;
+- use the distinctive model structure essentially;
+- state complete assumptions and exact conclusion scope;
+- provide a checkable proof or derivation;
+- produce a computable condition, design rule, bound, stability or
+  detectability result, or another testable consequence;
+- identify the new step relative to the closest analyses.
 
-## Gate C: can model-specific analysis count as a contribution?
+Use the formal-claim taxonomy in `references/living-user-rules.md`. A narrowly
+scoped result may be a property, proposition, derivation, or theoretical
+analysis rather than a theorem. Renaming an unsupported guarantee does not make
+it valid.
 
-Yes. A theoretical derivation tailored to the paper's particular model structure can be a legitimate contribution even when it is not a broad, general theorem. Model specificity does not disqualify an analytical contribution.
+## I5: contribution main line — 贡献主线集中
 
-However, the fact that no other paper has exactly the same model is not sufficient by itself. The model-specific analysis should:
+Organize candidate contributions around two or three central problem-facing
+themes. For each theme record:
 
-- derive a nontrivial consequence that is not true by definition;
-- use the distinctive structure of the proposed model in an essential way;
-- state all assumptions and the exact scope of the conclusion;
-- contain a complete and checkable derivation or proof;
-- produce a computable condition, interpretable property, implementable design rule, error bound, detectability result, stability result, or other testable consequence;
-- be compared with the closest existing analyses so that the new step is identifiable;
-- be validated numerically or experimentally when the conclusion is testable.
+`problem -> insufficiency -> construction -> nontrivial consequence -> required evidence`
 
-Classify formal claims using the sole taxonomy in `references/living-user-rules.md`. A narrow model-specific contribution may instead be presented as a property, analytical result, derivation, or theoretical analysis when a theorem-like environment would overstate its role.
+Merge module-level claims that answer the same problem. Do not promote a loss,
+network layer, implementation detail, ordinary data split, background fact, or
+unverified adjective to an independent contribution. Three to five concrete
+construction/analysis/validation statements may appear later under the two or
+three principal themes, but they must not become unrelated main lines.
 
-In Chinese discussion, “推理” may describe the research reasoning process, but formal manuscript labels should normally use “理论分析,” “推导结果,” “性质,” “命题,” or another standard term matching the rigor. Renaming an unsupported statement does not make it valid: any claimed guarantee still requires assumptions and a complete derivation.
+## I6: maturity decision — 成熟度不夸大
 
-## Repetition points
+Classify every route:
 
-Run all three gates:
+- `confirmed`: sufficiently supported to enter the conception baseline;
+- `exploratory`: promising but missing proof, evidence, or feasibility;
+- `alternative`: a coherent route under different assumptions;
+- `rejected`: contradicted, redundant, infeasible, or off the main line;
+- `unresolved`: awaiting literature, derivation, data, or a user decision.
 
-- when the idea is first proposed;
-- whenever the model structure or information setting changes;
-- before selecting the paper's core contributions;
-- before promoting an exploratory route to `confirmed`;
-- before drafting a theorem, proposition, or central analytical claim;
-- after the closest literature has been updated;
-- when experiment design reveals that a claim is not testable;
-- before finalizing the title, abstract, Introduction contributions, and Conclusion.
+Only `confirmed` decisions may appear as completed Stage 2 baselines. Keep
+unresolved secondary items visible, but do not present them in the title,
+abstract, contributions, theorem statements, or Conclusion as established.
 
-Record each pass in the matching case file and summarize the current decision in `MANUSCRIPT_CONTEXT.md`. A failed gate does not require deleting the idea; downgrade it, revise its assumptions, separate it as an alternative, or redefine the contribution precisely.
+## Repetition points and output
 
-## Stage output
+Run I1–I6 when the idea is first proposed; the model or information setting
+changes; a route is promoted; a theorem or central claim is drafted; closest
+literature changes; or Stage 2/3/4 reveals an untestable or unavailable premise.
 
-Before moving to journal-paper writing, the project should have:
-
-- a defined technical problem and information boundary;
-- a current closest-literature comparison;
-- two or three candidate contribution themes with explicit novelty deltas;
-- an assumption and realizability ledger;
-- selected and rejected technical routes;
-- appropriately scoped candidate analytical results;
-- a validation plan;
-- unresolved items clearly marked rather than hidden.
-
-The idea may move to Stage 2 when its central route is sufficiently `confirmed`. Unresolved secondary items may remain, but the title, abstract, contributions, and formal claims must not present them as completed results.
+Stage 1 outputs `idea-assessment.md` and updates the matching paper case. Move
+to Stage 2 only with a defined task and information boundary, current
+closest-work comparison, two or three candidate themes, selected/rejected
+routes, scoped analytical claims, credible realizability, and explicit
+unresolved items. Do not create or modify a versioned manuscript context before that
+central route is sufficiently confirmed.

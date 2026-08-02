@@ -1,6 +1,7 @@
 # Scientific figure palettes
 
-Use this reference for Stage 2 scientific figures that need a restrained, reusable color system.
+Use this reference in Stage 4 when a scientific figure needs a restrained,
+reusable color system.
 
 ## Contents
 
