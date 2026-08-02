@@ -162,7 +162,7 @@ Zotero 服务配置在 `.mcp.json`（Claude Code）和 `~/.codex/config.toml`（
 
 ## 8. Agent 协作约定
 
-### 主代理与论文正文写作代理（强制）
+### 主代理与论文正文写作代理（可选，需用户明确说明）
 
 #### 1. Codex 是唯一主代理
 
