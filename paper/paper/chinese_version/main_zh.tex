@@ -1,0 +1,820 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools,bm,mathrsfs}
+\usepackage{graphicx}
+\usepackage{booktabs,array}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+\usepackage{cite}
+\usepackage{url}
+
+% 中文支持
+\usepackage{ctex}
+\usepackage{xeCJK}
+
+\newtheorem{theorem}{定理}
+\newtheorem{proposition}{命题}
+\newtheorem{assumption}{假设}
+\newtheorem{corollary}{推论}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1\right\rvert}
+\newcommand{\T}{\mathsf T}
+\newcommand{\1}{\bm 1}
+
+\title{基于结构化基扰动残差学习的测量解耦注意力--Koopman--T--S模糊监测方法}
+\author{匿名作者}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+在没有物理故障模型、标记故障样本或已知故障方向的情况下监测非线性闭环系统，需要对一个基本难题给出结构性解决方案：携带异常信息的测量值也会更新用于判断异常的基准。本文通过三个相互关联的构造来解决这一难题。首先，将严格因果的注意力编码器与Takagi--Sugeno（T--S）模糊Koopman模型耦合，形成测量解耦的正常参考；启始索引残差随后提供单一数学对象，同时服务于自由滚动训练、短视界监测和长参考监测。其次，将完整模糊Koopman Jacobian分解为插值局部动力学和归一化规则权重的变化，得到可实现的无穷范数传播界和可靠的参考视界，无需特征值、奇异值、逆矩阵或高阶导数计算。第三，分别应用于输入、测量和提升坐标的模型内部基扰动通过前向滚动生成有限视界残差响应；所得响应用于联合降低正常传播、增加扰动灵敏度并分离响应模式。在线分数按模糊工作区域、控制器指令、指令变化和参考年龄标准化，阈值在留出的正常数据块上校准。推导了检测和唯一组分离的充分残差空间条件。当不满足唯一决策条件时，方法返回兼容扰动组的集合，而非不支持的物理故障标签。
+\end{abstract}
+
+\begin{IEEEkeywords}
+注意力机制、故障检测、Koopman算子、纯正常数据学习、结构化扰动、Takagi--Sugeno模糊系统。
+\end{IEEEkeywords}
+
+\section{引言}
+\IEEEPARstart{非}{线性}闭环系统通常会遍历多个工作状态，而几乎不产生具有代表性的故障记录。因此，学习正常输入--输出行为是一种有吸引力的监测策略，但它引入了一个结构性障碍：形成残差的测量值也被用于更新状态和模型，而残差正是根据这些状态和模型进行评估的。当异常测量进入编码器、注意力上下文或模糊调度变量时，正常参考可能向异常轨迹漂移，从而削弱检测所依赖的差异。这种测量值到参考基准的污染造成了一个耦合设计问题，无法通过任何单一模块单独解决。
+
+Koopman算子理论寻求提升坐标，使得非线性动力学能够承认有限维线性近似\cite{brunton2016,lusch2018}。T--S模糊模型通过归一化激活强度插值局部线性描述，为多工作状态动力学提供了一个有原则的框架\cite{takagi1985,tanaka2001,lam2018}。它们的组合已在建模和预测控制中得到研究\cite{hu2026}，但这些先前工作针对的是面向控制的预测精度，而非在既无故障模型也无故障数据时出现的诊断需求。因此，这种组合本身并不作为贡献在此提出。新的是赋予T--S结构的操作角色：它提供正常参考，通过其完整Jacobian矩阵确定有限视界误差传播界，并根据实现的工作区域调整在线监测决策。保留注意力机制以紧凑表示长输入--输出历史，但在建立初始锚点后，防止其将新测量路由到正常参考中。
+
+经典模糊故障检测方法引入显式故障或未知输入通道，并通过Lyapunov和线性矩阵不等式技术设计观测器或滤波器\cite{nguang2007,yang2011,thumati2014,zhao2020,ran2022}。基于Koopman的故障诊断同样利用了学习的残差和奇偶关系\cite{bakhtiaridoust2023,irani2024}。当物理故障模型或代表性故障数据可用时，这些公式非常适合。然而，在此处考虑的设置中，训练数据完全是正常的，物理故障位置、方向和时间剖面都是未知的。因此无法识别物理最小故障增益；唯一可用于诊断的结构由已知的输入和测量坐标以及学习的提升模型坐标组成。
+
+这种受限的信息边界将三个困难融合为一个相互关联的设计问题。将新测量排除在参考之外可以防止其适应异常观测，但同时暴露了单步教师强制本会掩盖的正常自由滚动漂移。仅减少漂移是不够的，因为灵敏度较低的模型也可能抑制异常残差。此外，未知的物理故障方向排除了任何合理的低维故障敏感投影。该方法必须控制正常传播，保留完整的联合残差，并仅针对显式定义的模型坐标扰动组学习可分离的响应。
+
+主要贡献如下。
+\begin{enumerate}
+\item 构造了测量解耦的注意力--Koopman--T--S参考和启始索引残差。该残差对象服务于自由滚动训练、短视界监测和长参考监测，并产生精确的非线性残差递推，同时延迟确认锚点规则保护参考免受异常测量污染。
+
+\item 分解完整的T--S模糊Koopman Jacobian矩阵，暴露局部动力学、规则重叠、局部模型差异和调度灵敏度的贡献。通过逐元素参数化强制的无穷范数界提供有限视界正常残差界和可靠的参考视界，无需代价高昂或可微性差的矩阵运算。
+
+\item 应用于输入、测量和提升坐标的扰动滚动与正常传播学习相结合。所得的输入条件统计量承认充分的残差空间检测和组分离条件，并在不支持唯一组时返回集值决策。
+\end{enumerate}
+
+这三个贡献在构造上是相互依赖的：第一个贡献中定义的参考是第二个贡献约束其传播的对象，第三个贡献中学习的扰动响应通过普通前向滚动作用于同一参考。第II节形式化这些构造必须在其下操作的信息边界，并以精确术语陈述三个子问题。第III节发展正常模型、测量解耦参考、传播分析和结构化响应学习。第IV节将冻结的残差和学习的模式转化为在线检测和隔离决策规则。第V节总结结果及其范围。
+
+\textbf{符号。}在全文中，上标$\mathfrak n$和$\mathfrak f$标识与正常和故障操作相关的量；下标$0$保留用于初始值。向量和矩阵用粗体表示；花体大写字母表示非线性映射($\mathcal X$、$\mathcal Y$、$\mathcal T$、$\mathcal D$)、编码器映射$\mathcal H_\Theta$、历史集合$\mathcal H_k^-$和损失泛函$\mathcal L$；黑板粗体大写字母($\mathbb R$、$\mathbb G$、$\mathbb X$、$\mathbb Y$、$\mathbb Z$)表示数域、集合和空间。维度前缀使用$m$(例如，$m_u$、$m_x$、$m_y$、$m_z$)。基本族$f/F$和$n$分别保留用于故障和正常量。无穷范数$\norm{\cdot}_\infty$是默认范数，除非另有说明；$\ell_1$范数$\norm{\cdot}_1$用于模式距离和窗口分数。标准基向量用$\bm q$表示，上标标识坐标空间。
+
+\section{预备知识与问题表述}
+\subsection{信息边界与受控过程描述}
+考虑一个闭环非线性系统，其中控制器在每个采样$k$时刻发出指令$\bm u_k\in\mathbb R^{m_u}$。实际施加到受控过程的执行器输出$\bm u_k^{\rm a}\in\mathbb R^{m_u}$不在线测量，并且可能因执行器侧偏差而与指令不同。包含故障的受控过程描述为
+\begin{equation}
+\begin{aligned}
+\bm u_k^{\rm a}&=\bm u_k+\bm f_k^{\rm a},\\
+\bm x_{k+1}&=\mathcal X^{\mathfrak n}
+(\bm x_k,\bm u_k^{\rm a})
++\bm f_k^{\rm p}+\bm\varepsilon_k^x,\\
+\bm y_k&=\mathcal Y^{\mathfrak n}
+(\bm x_k,\bm u_k^{\rm a})
++\bm f_k^{\rm s}+\bm\varepsilon_k^y,
+\end{aligned}
+\label{eq:controlled_process}
+\end{equation}
+其中$\bm x_k\in\mathbb R^{m_x}$和$\bm y_k\in\mathbb R^{m_y}$分别表示物理状态和测量输出。加性向量$\bm f_k^{\rm a}\in\mathbb R^{m_u}$、$\bm f_k^{\rm p}\in\mathbb R^{m_x}$和$\bm f_k^{\rm s}\in\mathbb R^{m_y}$表示可能的执行器侧、过程侧和测量侧偏离正常操作的量，而$\bm\varepsilon_k^x\in\mathbb R^{m_x}$和$\bm\varepsilon_k^y\in\mathbb R^{m_y}$分别表示进入状态转移和输出测量的扰动。正常操作映射$\mathcal X^{\mathfrak n}:\mathbb R^{m_x}\times\mathbb R^{m_u}\rightarrow\mathbb R^{m_x}$和$\mathcal Y^{\mathfrak n}:\mathbb R^{m_x}\times\mathbb R^{m_u}\rightarrow\mathbb R^{m_y}$是未知的。故障向量的维度仅指定偏差可以进入物理描述的位置；它们不向学习算法提供已知的故障方向。
+
+在线故障诊断只能访问记录的指令$\bm u_k$和测量输出$\bm y_k$。根据记录的指令调整正常模型回答了一个特定的反事实问题：如果受控过程的执行器和动力学遵循正常操作描述，在该指令下将如何演化？反馈控制器在感知异常测量后修改的指令仍然是已知的条件变量；$\bm u_k^{\rm a}$和$\bm u_k$之间未测量的差异仍然是要检测的不一致性。
+
+学习制度被有意限制。仅使用正常轨迹进行模型训练和阈值校准；不采用物理故障矩阵、故障方向、故障导数、故障时间模型或标记的故障轨迹。所有模型参数和校准量在测试期间冻结。
+
+\subsection{有限历史提升表示}
+上述定义的信息边界禁止访问物理状态$\bm x_k$和正常操作映射$\mathcal X^{\mathfrak n}$、$\mathcal Y^{\mathfrak n}$。因此需要仅从可用历史$\mathcal H_k^-$构造的表示。Koopman算子理论为这种表示提供了概念基础，但理想的Koopman公式必须适应信息边界所允许的内容。
+
+对于正常操作动力学，Koopman算子通过与状态转移的复合作用于可观测量\cite{brunton2016}。有限的可观测量向量$\bm\psi:\mathbb R^{m_x}\rightarrow\mathbb R^{m_z}$将满足理想关系
+\begin{equation}
+\bm\psi\!\left(\mathcal X^{\mathfrak n}(\bm x_k,\bm u_k)\right)
+=\bm\psi(\bm x_{k+1}).
+\label{eq:koopman}
+\end{equation}
+实际上，有限不变子空间可能不存在，学习的提升坐标不一定包含物理状态。因此，本公式采用从有限历史\eqref{eq:history}估计的预测坐标$\bm z_k^{\rm enc}\in\mathbb R^{m_z}$，并使用局部提升线性模型的T--S插值来近似正常操作域上的\eqref{eq:koopman}。有限提升固有的近似误差和有限历史导致的误差都保留在后续的传播分析中。
+
+\subsection{问题表述}
+在上述信息边界下，本文处理三个相互关联的子问题。
+\begin{enumerate}
+\item \emph{参考构造：}构造一个正常参考，它接受新测量用于残差评估但不用于参考更新，同时在自由滚动训练、短视界监测和长参考测试中使用单一残差定义。
+
+\item \emph{正常传播：}通过与一阶网络训练兼容的运算，量化该参考通过完整注意力--Koopman--T--S映射的有限视界漂移，并使实现的输入和模糊操作区域在所得界中显式化。
+
+\item \emph{残差空间决策：}仅使用正常数据，联合降低正常残差传播并增加可再现的模型坐标扰动响应的可分离性；然后构造输入条件检测统计量，并仅在残差响应提供充分证据时返回唯一组。
+\end{enumerate}
+
+\section{所提方法}
+\subsection{注意力--Koopman--T--S正常模型}
+正常操作模型由三个组件构建，它们共享一个共同的信息纪律：每个学习的映射仅访问严格的过去历史和记录的指令$\bm u_k$。为强制严格因果性，在采样$k$时刻可用的历史排除当前输出，定义为
+\begin{equation}
+\mathcal H_k^-=
+\left\{\bm u_{k-\ell_h:k-1},\,
+\bm y_{k-\ell_h:k-1}\right\},
+\label{eq:history}
+\end{equation}
+其中$\ell_h$是历史长度。
+
+历史中的每个元素首先被嵌入为一个token $\bm h_j$。对于注意力头$q\in\{1,\ldots,m_{\rm hd}\}$，在采样$k$时刻分配给过去token $j$的严格因果注意力系数计算为
+\begin{equation}
+\varpi_{k,j}^{(q)}
+=\frac{\exp\!\left(
+(\bm W_Q^{(q)}\bm h_{k-1})^\T
+(\bm W_K^{(q)}\bm h_j)/\sqrt{m_{\rm a}}\right)}
+{\displaystyle\sum_{\ell=k-\ell_h}^{k-1}
+\exp\!\left(
+(\bm W_Q^{(q)}\bm h_{k-1})^\T
+(\bm W_K^{(q)}\bm h_\ell)/\sqrt{m_{\rm a}}\right)}.
+\label{eq:attention}
+\end{equation}
+查询由最近的历史token $\bm h_{k-1}$形成，确保来自采样$k$或更晚的信息不进入注意力权重。头输出被串联并投影以产生紧凑的上下文向量：
+\begin{equation}
+\begin{aligned}
+\bm\chi_k&=\bm W_O
+\left[
+\sum_{j=k-\ell_h}^{k-1}\varpi_{k,j}^{(q)}
+\bm W_V^{(q)}\bm h_j
+\right]_{q=1}^{m_{\rm hd}},
+\\
+\bm z_k^{\rm enc}&=\mathcal H_\Theta(\mathcal H_k^-).
+\end{aligned}
+\label{eq:encoder}
+\end{equation}
+编码器$\mathcal H_\Theta$包含token嵌入和\eqref{eq:attention}的多头注意力操作。此处注意力用于压缩严格的过去历史；它不被视为单独的贡献。
+
+形成编码状态和上下文后，模型将它们与控制器指令耦合以产生驱动模糊规则隶属度的调度向量：
+\begin{equation}
+\bm\rho_k=\bm W_z\bm z_k+\bm W_\chi\bm\chi_k+
+\bm W_u\bm u_k.
+\label{eq:schedule}
+\end{equation}
+常数偏移通过增广的常数坐标吸收。对于每个规则$i\in\{1,\ldots,m_r\}$，负平方Mahalanobis类能量和归一化激活强度为
+\begin{equation}
+\begin{aligned}
+\varphi_i(\bm\rho)
+&=-\frac{1}{2}(\bm\rho-\bm c_i)^\T
+\bm\Pi_i(\bm\rho-\bm c_i),\\
+\omega_i(\bm\rho)
+&=\frac{\exp(\varphi_i(\bm\rho))}
+{\displaystyle\sum_{j=1}^{m_r}\exp(\varphi_j(\bm\rho))}.
+\end{aligned}
+\label{eq:fuzzy_weights}
+\end{equation}
+根据构造，$\omega_i\geq0$对每个规则成立且$\sum_i\omega_i=1$，形成有效的凸组合。每个规则的对角度量$\bm\Pi_i$和中心$\bm c_i$通过内置界参数化以保证正定性，无需约束优化：
+\begin{equation}
+\begin{aligned}
+\bm\Pi_i&=\mathrm{Diag}\!\left[
+\underline{\pi}\1+
+(\overline{\pi}-\underline{\pi})
+\operatorname{sigmoid}(\widetilde{\bm\pi}_i)\right],\\
+\bm c_i&=\overline{\bm c}\odot\tanh(\widetilde{\bm c}_i).
+\end{aligned}
+\label{eq:metric_parameterization}
+\end{equation}
+括号内的所有操作都是逐元素的，常数满足$0<\underline{\pi}<\overline{\pi}$。尽管$\bm\Pi_i$是对角的，坐标间依赖通过线性映射\eqref{eq:schedule}进入；调度空间中的对角度量并不意味着原始历史空间的轴对齐分区。
+
+局部和插值的提升动力学以及输出解码器定义为
+\begin{equation}
+\begin{aligned}
+\bm v_i(\bm z,\bm u)&=\bm A_i\bm z+\bm B_i\bm u,\\
+\mathcal T_\Theta(\bm z,\bm u;\bm\chi)
+&=\sum_{i=1}^{m_r}\omega_i(\bm\rho)\bm v_i(\bm z,\bm u),\\
+\bm y^{\rm dec}&=\mathcal D_\Theta(\bm z,\bm u).
+\end{aligned}
+\label{eq:fuzzy_transition}
+\end{equation}
+解码器$\mathcal D_\Theta$与物理输出映射$\mathcal Y^{\mathfrak n}$不同；这种分离是必要的，因为学习的提升状态不一定包含物理状态。
+
+为获得无需谱分解的可计算传播界，控制界的矩阵通过有界双曲正切映射逐元素参数化，从而通过构造强制所需界。例如，
+\begin{equation}
+\begin{aligned}
+[\bm A_i]_{pq}&=\frac{\kappa_A}{m_z}
+\tanh([\widetilde{\bm A}_i]_{pq}),\\
+[\bm B_i]_{pq}&=\frac{\kappa_B}{m_u}
+\tanh([\widetilde{\bm B}_i]_{pq}),\\
+[\bm W_z]_{pq}&=\frac{\kappa_W}{m_z}
+\tanh([\widetilde{\bm W}_z]_{pq}).
+\end{aligned}
+\label{eq:hard_bounds}
+\end{equation}
+因此，$\norm{\bm A_i}_\infty\leq\kappa_A$、$\norm{\bm B_i}_\infty\leq\kappa_B$和$\norm{\bm W_z}_\infty\leq\kappa_W$通过构造成立，无需谱投影或训练后验证。
+
+训练使用正常数据分割和自由滚动视界$\ell_{\rm tr}$。从采样起点$s$的编码状态开始，即$\bm z_{s\mid s}^{\rm roll}=\bm z_s^{\rm enc}$，模型向前传播，从其自己预测的输出而非真实测量更新历史；这里$\mathcal H_\Theta^\chi$表示编码器$\mathcal H_\Theta$的上下文产生组件，$\mathcal H_{t\mid s}^{\rm roll}$是从自我预测输出组装的滚动历史：
+\begin{equation}
+\begin{aligned}
+\bm\chi_{t\mid s}^{\rm roll}
+&=\mathcal H_\Theta^\chi(\mathcal H_{t\mid s}^{\rm roll}),\\
+\bm z_{t+1\mid s}^{\rm roll}
+&=\mathcal T_\Theta(\bm z_{t\mid s}^{\rm roll},\bm u_t;
+\bm\chi_{t\mid s}^{\rm roll}),\\
+\bm y_{t\mid s}^{\rm roll}
+&=\mathcal D_\Theta(\bm z_{t\mid s}^{\rm roll},\bm u_t).
+\end{aligned}
+\label{eq:free_rollout}
+\end{equation}
+自由滚动而非单步教师强制至关重要，因为在线测量解耦参考一旦从接受的锚点初始化，就在不访问未来测量的情况下传播。因此，正常预测损失直接在自由滚动轨迹上公式化：
+\begin{equation}
+\begin{aligned}
+\mathcal L_{\rm pred}
+=\sum_s\sum_{\ell=1}^{\ell_{\rm tr}}\big(&
+\lambda_z\norm{\bm z_{s+\ell}^{\rm enc}
+-\bm z_{s+\ell\mid s}^{\rm roll}}_1\\
+&+
+\lambda_y\norm{\bm y_{s+\ell}
+-\bm y_{s+\ell\mid s}^{\rm roll}}_1
+\big).
+\end{aligned}
+\label{eq:prediction_loss}
+\end{equation}
+选择$\ell_1$范数而非更常见的$\ell_2$范数，因为它在推论~\ref{cor:bound}中产生更紧的逐元素传播界，并与后面用于隔离的$\ell_1$模式距离一致。两个损失权重$\lambda_z$和$\lambda_y$控制潜在状态精度和输出重建保真度之间的权衡。
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+node distance=7mm and 9mm,
+box/.style={draw,rounded corners,align=center,minimum height=8mm,
+text width=29mm,font=\footnotesize},
+wide/.style={draw,rounded corners,align=center,minimum height=8mm,
+text width=36mm,font=\footnotesize},
+arr/.style={-{Latex[length=2mm]},thick}
+]
+\node[box] (hist) {严格过去\\$\{\bm u,\bm y\}$历史};
+\node[box,right=of hist] (enc) {因果注意力\\编码器$\mathcal H_\Theta$};
+\node[box,right=of enc] (data) {编码状态\\$\bm z_k^{\rm enc}$};
+\node[wide,below=of enc] (fuzzy) {度量T--S模糊Koopman模型\\
+$\mathcal T_\Theta=\sum_i\omega_i(\bm\rho)(\bm A_i\bm z+\bm B_i\bm u)$};
+\node[box,right=of fuzzy] (ref) {测量解耦\\参考$\bm z_k^{\mathfrak n}$};
+\node[box,right=of data] (res) {短和长\\联合残差$\bm e_k$};
+\node[wide,below=of fuzzy] (basis) {正常数据结构化基滚动\\输入、测量和提升坐标};
+\node[wide,right=of basis] (dec) {输入条件分数、动态阈值\\和唯一或集值组决策};
+\draw[arr] (hist)--(enc);
+\draw[arr] (enc)--(data);
+\draw[arr] (data)--(res);
+\draw[arr] (fuzzy)--(ref);
+\draw[arr] (ref)--(res);
+\draw[arr] (data)--(fuzzy);
+\draw[arr] (basis)--(dec);
+\draw[arr] (res)--(dec);
+\draw[arr] (fuzzy)--(basis);
+\end{tikzpicture}
+\caption{所提方法的信息路径。架构分离两个角色：数据分支（顶行）读取新测量并将其输入残差，而测量解耦参考分支（左下）由冻结模型仅使用记录指令和自我预测输出传播。结构化基滚动（中下）注入模型坐标扰动，并将所得响应与未扰动正常分支比较以学习可分离模式。}
+\label{fig:architecture}
+\end{figure*}
+
+图~\ref{fig:architecture}使这种分离显式化。数据分支持续编码严格的过去历史并产生编码状态$\bm z_k^{\rm enc}$，它直接进入残差。测量解耦参考分支从最新的延迟确认正常锚点传播$\bm z_k^{\mathfrak n}$，仅使用冻结模型和记录指令；锚点被接受后，没有新测量修正此参考。联合残差$\bm e_k$将编码状态与短滚动参考和长测量解耦参考进行比较。结构化基扰动被注入冻结模型以生成诊断响应，在线决策模块产生分数、动态阈值和唯一组或兼容集。
+
+\subsection{测量解耦参考与统一残差}
+单个残差对象服务于训练、短视界监测和长参考监测，仅在滚动起点$s$的选择上不同。对于任何起始索引$s$，滚动\eqref{eq:free_rollout}定义提升残差
+\begin{equation}
+\bm e_{k\mid s}^z=\bm z_k^{\rm enc}-\bm z_{k\mid s}^{\rm roll},
+\qquad k\geq s,
+\label{eq:start_residual}
+\end{equation}
+瞬时输出一致性残差为
+\begin{equation}
+\bm e_k^y=\bm y_k-
+\mathcal D_\Theta(\bm z_k^{\rm enc},\bm u_k).
+\label{eq:output_residual}
+\end{equation}
+相同的提升残差\eqref{eq:start_residual}出现在训练损失\eqref{eq:prediction_loss}中；在线时，仅起始索引改变。设$s=k-\ell_{\rm sh}$给出最近$\ell_{\rm sh}$个采样上的短滚动残差；设$s=s_k^{\mathfrak n}$，其中$s_k^{\mathfrak n}$是最新的延迟确认正常锚点（确认过程定义如下），给出长参考残差。长参考状态及其年龄定义为
+\begin{equation}
+\bm z_k^{\mathfrak n}=\bm z_{k\mid s_k^{\mathfrak n}}^{\rm roll},\qquad
+\ell_k^{\mathfrak n}=k-s_k^{\mathfrak n}.
+\label{eq:normal_reference}
+\end{equation}
+联合残差堆叠所有三个组件：
+\begin{equation}
+\bm e_k=
+\begin{bmatrix}
+(\bm e_k^y)^\T&
+(\bm e_{k\mid k-\ell_{\rm sh}}^z)^\T&
+(\bm e_{k\mid s_k^{\mathfrak n}}^z)^\T
+\end{bmatrix}^{\T}.
+\label{eq:joint_residual}
+\end{equation}
+
+锚点管理遵循延迟确认纪律。编码状态不立即被接受为正常锚点。它首先被存储为候选，仅在经过$\ell_{\rm cf}$个连续无警告采样后才提交。在警告和报警间隔期间，接受的锚点被冻结，\eqref{eq:free_rollout}继续而不进行测量更新，防止异常测量污染参考。
+
+\begin{proposition}[延迟锚点接受]
+\label{prop:anchor}
+假设属于指定可检测类的每个异常轨迹在其开始后最多$\ell_{\rm det}$个采样内触发警告。如果$\ell_{\rm cf}\geq\ell_{\rm det}$，则在该开始时或之后生成的候选都不会在警告前提交。
+\end{proposition}
+
+\begin{proof}
+候选的提交需要$\ell_{\rm cf}$个连续无警告采样。在所述前提下，警告不迟于开始后$\ell_{\rm det}\leq\ell_{\rm cf}$个采样发生，因此任何开始后候选都不满足接受条件。
+\end{proof}
+
+因此，命题~\ref{prop:anchor}是一个条件保证：在可用输入--输出信息中不产生可检测变化的故障无法被覆盖。该纪律在每次报警后重新应用：方法至少等待$\ell_h$个采样，使得编码器历史不再跨越标记的间隔，然后重复延迟确认过程。
+
+为表征启始索引残差如何演化，引入两个分离不同模型不匹配来源的中间量：
+\begin{equation}
+\begin{aligned}
+\bm\nu_k
+&=\bm z_{k+1}^{\rm enc}
+-\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k),\\
+\bm\delta_{k\mid s}^{\chi}
+&=\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k)
+-\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;
+\bm\chi_{k\mid s}^{\rm roll}).
+\end{aligned}
+\label{eq:innovation_context}
+\end{equation}
+单步转移残差$\bm\nu_k$捕获编码状态与在编码上下文处评估的转移模型的单步不一致性；历史特征替换误差$\bm\delta_{k\mid s}^{\chi}$测量用滚动上下文$\bm\chi_{k\mid s}^{\rm roll}$（仅使用自我预测输出）替换编码上下文$\bm\chi_k$（受益于真实测量历史）的效果。
+
+\begin{theorem}[精确启始索引残差传播]
+\label{thm:exact}
+假设$\mathcal T_\Theta$在连接$\bm z_{k\mid s}^{\rm roll}$和$\bm z_k^{\rm enc}$的线段上关于$\bm z$连续可微。则提升残差服从精确的单步递推
+\begin{equation}
+\bm e_{k+1\mid s}^z
+=\overline{\bm\Gamma}_{k\mid s}\bm e_{k\mid s}^z
++\bm\nu_k+\bm\delta_{k\mid s}^{\chi},
+\label{eq:exact_recursion}
+\end{equation}
+其中平均Jacobian为
+\begin{equation}
+\overline{\bm\Gamma}_{k\mid s}=
+\int_0^1
+\bm\Gamma_{z,k}\!\left(
+\bm z_{k\mid s}^{\rm roll}
++\tau\bm e_{k\mid s}^z\right)\,\mathrm d\tau.
+\label{eq:averaged_jacobian}
+\end{equation}
+因此，有限视界传播承认显式展开
+\begin{equation}
+\bm e_{k\mid s}^z=
+\bm\Phi(k,s)\bm e_{s\mid s}^z+
+\sum_{j=s}^{k-1}\bm\Phi(k,j+1)
+(\bm\nu_j+\bm\delta_{j\mid s}^{\chi}),
+\label{eq:finite_propagation}
+\end{equation}
+其中有序乘积$\bm\Phi(k,j)=
+\overline{\bm\Gamma}_{k-1\mid s}\cdots
+\overline{\bm\Gamma}_{j\mid s}$和边界条件
+$\bm\Phi(j,j)=\bm I$。
+\end{theorem}
+
+证明通过在编码上下文$\bm\chi_k$和滚动上下文$\bm\chi_{k\mid s}^{\rm roll}$处加减在编码状态$\bm z_k^{\rm enc}$处评估的转移，然后应用积分中值恒等式；完整推导在附录A中给出。因此，递推暴露了有限视界强迫的两个来源：有限历史编码固有的单步转移残差$\bm\nu_k$，以及随注意力记忆长度累积的历史特征替换误差$\bm\delta_{k\mid s}^{\chi}$。
+
+\subsection{模糊结构依赖的正常传播}
+定理~\ref{thm:exact}将残差演化简化为平均Jacobian的乘积和累积的强迫。获得Jacobian的可计算界需要分析完整T--S模糊结构——而非仅加权的局部矩阵——如何响应提升状态的变化。
+
+为简洁起见，定义局部下一状态值$\bm v_{i,k}=\bm A_i\bm z_k+\bm B_i\bm u_k$及其隶属度加权平均$\overline{\bm v}_k=\sum_i\omega_{i,k}\bm v_{i,k}$。从隶属度定义\eqref{eq:fuzzy_weights}，每个规则的度量能量关于调度向量的梯度为
+\begin{equation}
+\begin{aligned}
+\bm\gamma_{i,k}^{\rho}
+&:=\nabla_{\bm\rho}\varphi_{i,k}
+=-\bm\Pi_i(\bm\rho_k-\bm c_i),\\
+\overline{\bm\gamma}_k^{\rho}
+&:=\sum_j\omega_{j,k}\bm\gamma_{j,k}^{\rho},\\
+\nabla_{\bm\rho}\omega_{i,k}
+&=\omega_{i,k}
+(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho}).
+\end{aligned}
+\label{eq:weight_gradient}
+\end{equation}
+这里$\bm\gamma_{i,k}^{\rho}$（小写，带上标$\rho$）表示规则$i$的局部能量梯度，而$\bm\Gamma_{z,k}$（大写，大写gamma，带下标$z$）将表示插值转移关于提升状态的完整Jacobian；符号区分反映了它们在模糊结构中的不同角色。差值$\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho}$量化规则$i$的局部度量梯度偏离隶属度加权平均的强度。该项在单个规则占主导的区域很小，在多个规则竞争的过渡区域变得显著。
+
+\begin{theorem}[完整模糊提升状态Jacobian]
+\label{thm:jacobian}
+对于固定的$\bm u_k$和$\bm\chi_k$，插值转移\eqref{eq:fuzzy_transition}关于$\bm z$的Jacobian分解为
+\begin{equation}
+\begin{aligned}
+\bm\Gamma_{z,k}
+={}&\sum_{i=1}^{m_r}\omega_{i,k}\bm A_i\\
+&+\sum_{i=1}^{m_r}\omega_{i,k}
+(\bm v_{i,k}-\overline{\bm v}_k)
+(\bm\gamma_{i,k}^{\rho}
+-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z .
+\end{aligned}
+\label{eq:complete_jacobian}
+\end{equation}
+此外，其无穷范数满足可实现界
+\begin{equation}
+\begin{aligned}
+\norm{\bm\Gamma_{z,k}}_\infty\leq\kappa_k:={}&
+\sum_i\omega_{i,k}\norm{\bm A_i}_\infty\\
+&+\norm{\bm W_z}_\infty
+\sum_i\omega_{i,k}
+\norm{\bm v_{i,k}-\overline{\bm v}_k}_\infty\\
+&\hspace{14mm}\times
+\norm{\bm\gamma_{i,k}^{\rho}
+-\overline{\bm\gamma}_k^{\rho}}_1 .
+\end{aligned}
+\label{eq:jacobian_bound}
+\end{equation}
+\end{theorem}
+
+方程\eqref{eq:complete_jacobian}分离了模糊插值的不同结构机制产生的两个贡献。第一项是局部动力学矩阵的直接插值——如果隶属度权重固定将出现的项。第二项捕获归一化激活强度关于提升状态的变化。仅当三个条件同时出现时该项才变大：多个规则具有非可忽略权重（规则重叠），它们的局部下一状态预测差异很大，且调度向量位于在这些规则间重新分配权重的方向上。分解的证明和诱导范数界的推导在附录B中给出。
+
+方程\eqref{eq:jacobian_bound}提供传播界的结构组件，而未解决的余项——由有限数据近似、未建模扰动和编码器误差产生——由经验校准的强迫项表示。
+
+\begin{assumption}[正常残差强迫]
+\label{ass:normal}
+在规定的正常操作域上，已知非负值$\overline{\varepsilon}_k$满足
+\begin{equation}
+\norm{\bm\nu_k+\bm\delta_{k\mid s}^{\chi}}_\infty
+\leq\overline{\varepsilon}_k
+\label{eq:forcing_bound}
+\end{equation}
+在校准的正常事件上。
+\end{assumption}
+
+假设~\ref{ass:normal}中的值不作为从有限数据导出的确定性全局界声明。结构贡献来自\eqref{eq:hard_bounds}--\eqref{eq:jacobian_bound}；未解决的正常余项在第IV节的留出正常块上校准。
+
+\begin{corollary}[有限视界正常残差界]
+\label{cor:bound}
+如果$\beta_{s\mid s}\geq\norm{\bm e_{s\mid s}^z}_\infty$且标量序列满足线性递推
+\begin{equation}
+\beta_{k+1\mid s}=\kappa_k\beta_{k\mid s}
++\overline{\varepsilon}_k,
+\label{eq:beta_recursion}
+\end{equation}
+则$\norm{\bm e_{k\mid s}^z}_\infty\leq\beta_{k\mid s}$在轨迹保持在规定正常域内时成立。对于给定的参考容差$\overline{\beta}$，可靠视界为
+\begin{equation}
+\ell_{\rm ref}(s)=
+\max\left\{\ell:\beta_{s+j\mid s}\leq\overline{\beta},
+\ 1\leq j\leq\ell\right\}.
+\label{eq:reliable_horizon}
+\end{equation}
+\end{corollary}
+
+\eqref{eq:jacobian_bound}中的所有量仅涉及矩阵乘积、逐元素绝对值和行或列和——这些运算高效且与一阶自动微分兼容。\eqref{eq:beta_recursion}的经验训练对应物
+\begin{equation}
+\mathcal L_{\rm nr}=
+\sum_s\sum_{\ell=1}^{\ell_{\rm tr}}
+\beta_{s+\ell\mid s}^{\rm emp},
+\label{eq:normal_propagation_loss}
+\end{equation}
+作为正常参考传播正则化器。它本身不构成改善物理故障灵敏度的声明；其作用是控制残差分离的正常侧。
+
+\subsection{结构化基扰动残差学习}
+减少正常传播损失\eqref{eq:normal_propagation_loss}仅控制诊断问题的一侧。正则化器\eqref{eq:beta_recursion}惩罚传播界$\beta_{k\mid s}$的大值，但该界乘性地与Jacobian范数$\kappa_k$进入训练目标，加性地与强迫界$\overline{\varepsilon}_k$进入。因为决定$\kappa_k$的相同矩阵$\bm A_i$、$\bm B_i$和$\bm W_z$也决定模型对输入和状态扰动的灵敏度，产生小$\beta_{k\mid s}$的参数配置可能同时对任何扰动——正常或异常——产生小响应。这是残差诊断中标称鲁棒性与故障灵敏度之间的众所周知的张力：任何衰减正常传播的机制也有衰减异常响应的风险，除非单独的诊断目标平衡它。在没有物理故障数据或已知故障方向的情况下，诊断训练信号必须因此从学习模型内显式可用的结构生成。
+
+为此，定义模型坐标扰动组集
+\begin{equation}
+\mathbb G_{\rm b}=\{\mathrm u,\mathrm y,\mathrm z\},
+\label{eq:group_set}
+\end{equation}
+其中$\mathrm u$、$\mathrm y$和$\mathrm z$标识输入、测量和提升坐标分支。这些标签指定扰动在学习架构中插入的位置；它们不是物理执行器、传感器或过程类别。
+
+在采样起点$s$，选择一个标准基向量和有符号幅值$\alpha$。扰动被注入恰好一个分支，而模型其余部分保持冻结：
+\begin{itemize}
+\item 输入分支在模型滚动中用$\bm u_s+\alpha\bm q_j^u$替换$\bm u_s$，模拟应用于记录指令的扰动。
+\item 测量分支在当前输出残差和包含该采样的所有后续因果历史中用$\bm y_s+\alpha\bm q_j^y$替换$\bm y_s$。
+\item 提升分支直接将扰动添加到单步转移：
+\begin{equation}
+\bm z_{s+1}^{(\mathrm z,j,\alpha)}
+=\mathcal T_\Theta(\bm z_s^{\rm enc},\bm u_s;\bm\chi_s)
++\alpha\bm q_j^z.
+\label{eq:lifted_perturbation}
+\end{equation}
+\end{itemize}
+注入后，每个分支遵循与未扰动正常分支相同的冻结模型和参考逻辑。用$\bm e_t^{\mathfrak n}$表示采样$t$处的未扰动联合残差。
+
+对于响应视界$\ell_{\rm b}$，扰动和正常残差堆栈差分以分离扰动响应：
+\begin{equation}
+\Delta\bm e_{s,\ell_{\rm b}}^{g,j,\alpha}
+=
+\begin{bmatrix}
+(\bm e_s^{g,j,\alpha}-\bm e_s^{\mathfrak n})^\T&
+\cdots&
+(\bm e_{s+\ell_{\rm b}-1}^{g,j,\alpha}
+-\bm e_{s+\ell_{\rm b}-1}^{\mathfrak n})^\T
+\end{bmatrix}^{\T}.
+\label{eq:response_increment}
+\end{equation}
+幅值归一化灵敏度和单位$\ell_1$响应模式定义为
+\begin{equation}
+\eta_{g,j,\alpha}^{\rm rsp}=
+\frac{\norm{\Delta\bm e_{s,\ell_{\rm b}}^{g,j,\alpha}}_1}
+{\abs{\alpha}+\epsilon_{\rm reg}},
+\qquad
+\bm p_{g,j,\alpha}=
+\frac{\abs{\Delta\bm e_{s,\ell_{\rm b}}^{g,j,\alpha}}}
+{\norm{\Delta\bm e_{s,\ell_{\rm b}}^{g,j,\alpha}}_1+\epsilon_{\rm reg}},
+\label{eq:response_pattern}
+\end{equation}
+其中模式分子中的绝对值是逐元素的，$\epsilon_{\rm reg}>0$提供数值稳定化。
+
+有了这些量，训练的诊断侧追求两个与正常传播正则化器联合操作的目标：灵敏度损失，鼓励每个组的扰动产生至少目标幅度的响应；分离损失，强制不同组的响应模式在$\ell_1$距离上至少保持边界$\eta_{\rm iso}$可区分：
+\begin{equation}
+\begin{aligned}
+\mathcal L_{\rm sen}
+&=\sum_{g,j,\alpha}
+\left[\underline{\eta}_g-\eta_{g,j,\alpha}^{\rm rsp}\right]_+^2,\\
+\mathcal L_{\rm iso}
+&=\sum_{g\ne\bar g}
+\left[
+\eta_{\rm iso}
+-\norm{\bm p_{g,j,\alpha}
+-\bm p_{\bar g,\bar j,\bar\alpha}}_1
+\right]_+^2.
+\end{aligned}
+\label{eq:response_losses}
+\end{equation}
+完整训练目标为
+\begin{equation}
+\mathcal L=
+\mathcal L_{\rm pred}
++\lambda_{\rm nr}\mathcal L_{\rm nr}
++\lambda_{\rm sen}\mathcal L_{\rm sen}
++\lambda_{\rm iso}\mathcal L_{\rm iso}
++\lambda_{\rm bal}\mathcal L_{\rm bal},
+\label{eq:complete_loss}
+\end{equation}
+其中$\mathcal L_{\rm bal}$仅惩罚低于规定最小值的规则占用率；它不强制统一规则使用。每个小批次从每个组采样一个坐标，因此额外计算由三次普通前向滚动和一阶反向传播组成。该构造不引入Hessian、特征分解、奇异值分解、矩阵逆或在线优化。
+
+\eqref{eq:complete_loss}的加性形式反映了方法的模块化设计：每个损失针对监测目标的一个要求，权重$\lambda_{\rm nr}$、$\lambda_{\rm sen}$、$\lambda_{\rm iso}$和$\lambda_{\rm bal}$控制预测、传播和诊断目标之间的相对重点，较大值对相应性质施加更强权重。
+
+构造了测量解耦参考、正常传播界和结构化扰动响应后，我们现在制定在线过程，该过程消耗这些冻结对象以产生检测报警和隔离决策。
+
+\section{输入条件检测与集值隔离}
+\subsection{输入条件残差标准化}
+原始联合残差\eqref{eq:joint_residual}遵循的分布随实现的指令、指令变化、活跃模糊操作区域和测量解耦参考的年龄而移动。在这些变化条件下应用固定阈值会将正常操作点变化与异常混淆。以下标准化在形成标量分数之前将这些依赖性吸收到条件依赖的尺度中。
+
+条件描述符收集控制残差分布的量：
+\begin{equation}
+\bm\upsilon_k=\bm u_k-\bm u_{k-1},\qquad
+\bm\zeta_k=
+\begin{bmatrix}
+(\bm\omega_k^{\mathfrak n})^\T&
+\bm u_k^\T&
+\bm\upsilon_k^\T&
+\ell_k^{\mathfrak n}
+\end{bmatrix}^{\T},
+\label{eq:descriptor}
+\end{equation}
+其中$\bm\omega_k^{\mathfrak n}$包含沿正常参考$\bm z_k^{\mathfrak n}$及其预测上下文评估的激活强度。对于每个模糊规则，正常训练块提供局部条件均值$\bm\mu_i(\bm\zeta_k)$和正逐元素尺度$\bm\sigma_i(\bm\zeta_k)$。混合矩包含规则内不确定性和规则间离散：
+\begin{equation}
+\begin{aligned}
+\bm\mu_k&=\sum_i\omega_{i,k}^{\mathfrak n}\bm\mu_i,\\
+\bm\sigma_k^{\odot2}
+&=\sum_i\omega_{i,k}^{\mathfrak n}
+\left[
+\bm\sigma_i^{\odot2}
++(\bm\mu_i-\bm\mu_k)^{\odot2}
+\right]+\epsilon_\sigma\1 .
+\end{aligned}
+\label{eq:mixture_moments}
+\end{equation}
+规则间项$(\bm\mu_i-\bm\mu_k)^{\odot2}$防止在规则边界处低估条件方差，此处残差均值可以在相邻操作区域之间显著移动，加性下限$\epsilon_\sigma\1$保持$\bm\sigma_k^{\odot2}$的每个元素为正。设$\bm\sigma_k$表示\eqref{eq:mixture_moments}中$\bm\sigma_k^{\odot2}$的逐元素平方根；逐元素标准化产生
+\begin{equation}
+\widetilde{\bm e}_k=
+(\bm e_k-\bm\mu_k)\oslash\bm\sigma_k.
+\label{eq:standardized_residual}
+\end{equation}
+
+对于从预先声明的有限列表$\{\ell_1,\ldots,\ell_{\max}\}$中提取的每个窗口长度$\ell$，累积的$\ell_1$分数为
+\begin{equation}
+\varsigma_{k,\ell}=
+\sum_{j=k-\ell+1}^{k}\norm{\widetilde{\bm e}_j}_1.
+\label{eq:window_score}
+\end{equation}
+留出的正常校准分割按预先声明的模糊操作单元和参考年龄间隔分区。在每个单元内，非重叠块校准上分位数$\tau_{\rm cal}(\bm\zeta_k,\ell)$。来自\eqref{eq:beta_recursion}的传播确定性分量在相同逐元素缩放后贡献$\tau_{\rm prop}(\beta_{k\mid s_k^{\mathfrak n}},\ell)$。在线阈值组合两个来源：
+\begin{equation}
+\tau_{k,\ell}=
+\tau_{\rm cal}(\bm\zeta_k,\ell)
++\tau_{\rm prop}(\beta_{k\mid s_k^{\mathfrak n}},\ell).
+\label{eq:dynamic_threshold}
+\end{equation}
+校准项吸收未解决的随机余项；传播项跟踪累积的参考漂移。它们共同产生适应输入、输入变化、模糊区域和参考年龄的阈值，无需在线重新估计。实际上，两个分量起互补作用：$\tau_{\rm cal}$在锚点接受后不久占主导，此时参考漂移很小且残差分布主要由正常建模误差决定；$\tau_{\rm prop}$随参考年龄$\ell_k^{\mathfrak n}$增长并最终超过校准项，表明参考已累积足够漂移以需要重新确认。
+
+多尺度统计量在声明的窗口族上取归一化分数的最大值：
+\begin{equation}
+\varsigma_k^{\max}=
+\max_{\ell\in\{\ell_1,\ldots,\ell_{\max}\}}
+\frac{\varsigma_{k,\ell}}{\tau_{k,\ell}}.
+\label{eq:multiscale}
+\end{equation}
+其最终决策水平直接在最大分数上校准，避免了单独的每窗口测试需要的多重性修正。在序列依赖下，有限样本覆盖解释是块式而非样本式的，符合可交换块校准框架\cite{vovk2005,xu2021}。
+
+\subsection{充分检测条件}
+正常传播正则化器\eqref{eq:normal_propagation_loss}和结构化响应损失\eqref{eq:response_losses}作用于同一残差的对立面。以下命题明确说明为何两者都是必要的，以及它们如何组合以产生可检测边界。
+
+\begin{proposition}[残差空间检测]
+\label{prop:detection}
+对于选定窗口，假设正常标准化残差块满足$\norm{\widetilde{\bm e}^{\,\mathfrak n}}_1\leq\tau_{k,\ell}$在校准的正常事件上。设相应的故障残差块为$\widetilde{\bm e}^{\,\mathfrak f}=\widetilde{\bm e}^{\,\mathfrak n}+\Delta\widetilde{\bm e}^{\,\mathfrak f}$，并假设结构化扰动产生学习响应$\Delta\widetilde{\bm e}^{\,g,j,\alpha}$且$\norm{\Delta\widetilde{\bm e}^{\,\mathfrak f}-\Delta\widetilde{\bm e}^{\,g,j,\alpha}}_1\leq\epsilon_g$。如果
+\begin{equation}
+\norm{\Delta\widetilde{\bm e}^{\,g,j,\alpha}}_1
+>2\tau_{k,\ell}+\epsilon_g,
+\label{eq:detection_condition}
+\end{equation}
+则相应残差块在该事件上超过$\tau_{k,\ell}$。
+\end{proposition}
+
+证明遵循反三角不等式：$\norm{\widetilde{\bm e}^{\,\mathfrak f}}_1\geq\norm{\Delta\widetilde{\bm e}^{\,g,j,\alpha}}_1-\epsilon_g-\tau_{k,\ell}>\tau_{k,\ell}$。假设训练响应在\eqref{eq:standardized_residual}标准化后满足$\norm{\Delta\widetilde{\bm e}^{\,g,j,\alpha}}_1\geq\underline{\eta}_g\abs{\alpha}$，条件转化为充分幅值要求：
+\begin{equation}
+\abs{\alpha}>
+\frac{2\tau_{k,\ell}+\epsilon_g}{\underline{\eta}_g}.
+\label{eq:amplitude_condition}
+\end{equation}
+这是残差模型结论，而非物理最小故障声明。它暴露训练目标可以控制的两个因素：减少正常传播降低阈值$\tau_{k,\ell}$，增加结构化扰动响应提高灵敏度$\underline{\eta}_g$。
+
+\subsection{唯一或集值隔离}
+声明检测后，观测残差增量通过与\eqref{eq:response_pattern}相同的过程归一化为单位$\ell_1$模式。对于每个组$g$，设$\delta_g(k)$为观测模式到训练滚动期间为该组存储的模式的最小$\ell_1$距离。兼容集收集距离落入校准容差内的每个组：
+\begin{equation}
+\mathbb G_k^{\rm cmp}=
+\left\{g\in\mathbb G_{\rm b}:
+\delta_g(k)\leq\tau_{\rm iso}\right\}.
+\label{eq:candidate_set}
+\end{equation}
+仅当$\mathbb G_k^{\rm cmp}$恰好包含一个元素且到第二接近组的距离超过校准的歧义边界时才返回唯一组。当两个条件都不成立时，观测残差模式不唯一暗示一个插入位置，方法报告完整兼容集。
+
+\begin{proposition}[充分组分离]
+\label{prop:isolation}
+假设观测归一化响应位于从真实插入组生成的存储模式的$\delta_{\rm obs}$内。如果属于不同组的每个存储模式与该存储模式的$\ell_1$距离大于$2\delta_{\rm obs}$，最近模式分类恢复生成组。
+\end{proposition}
+
+结果遵循三角不等式。当其前提不满足时——要么因为观测模式落在组边界附近，要么因为两个组的扰动响应在残差空间中重叠——返回兼容集\eqref{eq:candidate_set}。标签$\mathrm u$、$\mathrm y$和$\mathrm z$指示与学习架构中扰动插入位置的兼容性。在没有从模型坐标到物理组件的独立验证映射的情况下，它们不得被重新解释为唯一的执行器、传感器或过程故障标识。
+
+\subsection{离线与在线算法}
+离线过程在算法~\ref{alg:offline}中总结，消耗不相交的正常训练和校准块。所有学习的参数、统计量、阈值和响应模式在在线部署前冻结。
+
+\begin{algorithm}[H]
+\caption{正常数据离线设计}
+\label{alg:offline}
+\begin{algorithmic}[1]
+\Require 不相交的正常训练和校准块
+\State 通过使用\eqref{eq:prediction_loss}的自由滚动训练$\mathcal H_\Theta$、$\mathcal T_\Theta$和$\mathcal D_\Theta$。
+\State 应用\eqref{eq:metric_parameterization}和\eqref{eq:hard_bounds}；计算\eqref{eq:jacobian_bound}和\eqref{eq:normal_propagation_loss}。
+\State 从\eqref{eq:group_set}中的每个组采样一个坐标；通过普通前向分支优化\eqref{eq:complete_loss}。
+\State 冻结所有模型和模糊规则参数。
+\State 估计\eqref{eq:mixture_moments}并在留出的非重叠正常块上校准\eqref{eq:dynamic_threshold}。
+\State 存储响应模式并为\eqref{eq:candidate_set}校准歧义边界。
+\end{algorithmic}
+\end{algorithm}
+
+在线时，编码器持续读取严格的过去历史，而测量解耦参考要么从其接受的锚点前进，要么等待延迟重新确认。算法~\ref{alg:online}总结每样本决策循环。
+
+\begin{algorithm}[H]
+\caption{在线监测}
+\label{alg:online}
+\begin{algorithmic}[1]
+\Require 冻结模型、正常统计量、阈值和响应模式
+\For{每个采样$k$}
+\State 从数据分支计算$\bm z_k^{\rm enc}$和$\bm e_k^y$。
+\State 传播短滚动和测量解耦参考。
+\State 通过\eqref{eq:joint_residual}形成$\bm e_k$，通过\eqref{eq:descriptor}形成$\bm\zeta_k$。
+\State 计算\eqref{eq:standardized_residual}--\eqref{eq:multiscale}。
+\If{$\varsigma_k^{\max}$超过其校准决策水平}
+\State 冻结锚点接受并报告报警。
+\State 通过\eqref{eq:candidate_set}返回$\mathbb G_k^{\rm cmp}$。
+\Else
+\State 继续延迟确认锚点管理。
+\EndIf
+\State 报警后，等待$\ell_h$个采样并在接受新锚点前重复延迟确认。
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+在线阶段仅执行编码器和模型前向传递、逐元素标准化、向量范数以及\eqref{eq:dynamic_threshold}和\eqref{eq:multiscale}的查找表阈值和分数评估。模糊中心、度量、网络权重和阈值保持冻结；不需要在线更新、重新聚类、矩阵分解或优化。
+
+\section{结论}
+本文将纯正常数据的非线性监测表述为三个对齐的问题，其解在结构上相互依赖。防止新测量更新正常参考、控制该解耦暴露的自由滚动漂移、以及在没有物理故障先验的情况下做出残差空间决策，这些都无法孤立地解决——每个解约束并使能下一个。
+
+构造了测量解耦的注意力--Koopman--T--S参考和启始索引残差，使得同一个残差对象服务于自由滚动训练、短视界监测和长参考评估，避免了训练和在线操作使用不同残差定义时会产生的差异。然后完整模糊Jacobian分解将正常传播与四个结构上不同的因素——局部动力学、规则重叠、局部模型差异和调度灵敏度——联系起来，并提供仅需逐元素操作和行或列和的可实现无穷范数界。分别注入输入、测量和提升分支的结构化模型坐标扰动通过提供增加残差灵敏度和组间分离的诊断训练信号来补充正常传播目标，而无需物理故障数据。
+
+在决策侧，输入、模糊区域和参考年龄条件标准化产生了动态检测规则，充分残差空间条件暴露了传播减少和响应放大的互补作用。隔离输出是有意保守的：当观测残差模式不唯一暗示一个插入位置时，方法返回兼容集而非不支持的单例。
+
+该方法不声称唯一物理故障识别：这样的声明需要额外的执行测量、故障通道知识或从提升坐标到物理组件的验证映射。
+
+\appendices
+\section{定理~\ref{thm:exact}的证明}
+从提升残差的定义\eqref{eq:start_residual}开始：
+\begin{equation*}
+\bm e_{k+1\mid s}^z=\bm z_{k+1}^{\rm enc}-\bm z_{k+1\mid s}^{\rm roll}.
+\end{equation*}
+加减在编码上下文处评估的转移$\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k)$，然后加减在滚动上下文但在编码状态处评估的$\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})$：
+\begin{equation*}
+\begin{aligned}
+\bm e_{k+1\mid s}^z={}&
+\bm z_{k+1}^{\rm enc}
+-\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k)\\
+&+\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k)
+-\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})\\
+&+\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
+-\bm z_{k+1\mid s}^{\rm roll}.
+\end{aligned}
+\end{equation*}
+根据\eqref{eq:innovation_context}中的定义，第一行等于$\bm\nu_k$，第二行等于$\bm\delta_{k\mid s}^{\chi}$。第三行可写为
+\begin{equation*}
+\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
+-\mathcal T_\Theta(\bm z_{k\mid s}^{\rm roll},\bm u_k;\bm\chi_{k\mid s}^{\rm roll}),
+\end{equation*}
+其中我们使用了滚动递推\eqref{eq:free_rollout}。因为$\mathcal T_\Theta$关于$\bm z$连续可微，积分中值定理适用：
+\begin{equation*}
+\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
+-\mathcal T_\Theta(\bm z_{k\mid s}^{\rm roll},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
+=\overline{\bm\Gamma}_{k\mid s}\bm e_{k\mid s}^z,
+\end{equation*}
+其中$\overline{\bm\Gamma}_{k\mid s}$在\eqref{eq:averaged_jacobian}中定义。组合这些步骤证明了单步递推\eqref{eq:exact_recursion}。从$k=s$到$k$的重复代入产生有限视界展开\eqref{eq:finite_propagation}，有序乘积$\bm\Phi(k,j)$如所述。
+
+\section{定理~\ref{thm:jacobian}的证明}
+对插值转移$\mathcal T_\Theta(\bm z,\bm u;\bm\chi)=\sum_{i=1}^{m_r}\omega_i(\bm\rho)\bm v_i(\bm z,\bm u)$关于$\bm z$求导。根据乘积法则，
+\begin{equation*}
+\bm\Gamma_{z,k}=\frac{\partial\mathcal T_\Theta}{\partial\bm z}
+=\sum_i\frac{\partial\omega_i}{\partial\bm z}\bm v_i
++\sum_i\omega_i\frac{\partial\bm v_i}{\partial\bm z}.
+\end{equation*}
+由于$\bm v_i(\bm z,\bm u)=\bm A_i\bm z+\bm B_i\bm u$，我们有$\partial\bm v_i/\partial\bm z=\bm A_i$。链式法则给出$\partial\omega_i/\partial\bm z=(\nabla_{\bm\rho}\omega_i)^\T\partial\bm\rho/\partial\bm z$。从调度向量定义\eqref{eq:schedule}，$\partial\bm\rho/\partial\bm z=\bm W_z$。因此
+\begin{equation*}
+\bm\Gamma_{z,k}=\sum_i\omega_{i,k}\bm A_i+
+\sum_i\bm v_{i,k}
+(\nabla_{\bm\rho}\omega_{i,k})^\T\bm W_z.
+\end{equation*}
+将\eqref{eq:weight_gradient}代入第二项：
+\begin{equation*}
+\sum_i\bm v_{i,k}
+(\nabla_{\bm\rho}\omega_{i,k})^\T\bm W_z
+=\sum_i\omega_{i,k}\bm v_{i,k}
+(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z.
+\end{equation*}
+因为$\sum_i\omega_i=1$，恒等式$\sum_i\omega_i(\bm\gamma_i^{\rho}-\overline{\bm\gamma}^{\rho})=\bm 0$成立。因此，我们可以用$\bm v_{i,k}-\overline{\bm v}_k$替换$\bm v_{i,k}$而不改变和：
+\begin{equation*}
+\sum_i\omega_{i,k}(\bm v_{i,k}-\overline{\bm v}_k)
+(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z
+=\sum_i\omega_{i,k}\bm v_{i,k}
+(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z.
+\end{equation*}
+这证明了分解\eqref{eq:complete_jacobian}。
+
+对于无穷范数界，注意对于向量$\bm a\in\mathbb R^{m_z}$和$\bm b\in\mathbb R^{m_\rho}$，秩一矩阵$\bm a\bm b^\T$的诱导无穷范数满足$\norm{\bm a\bm b^\T}_\infty=\norm{\bm a}_\infty\norm{\bm b}_1$。对\eqref{eq:complete_jacobian}应用三角不等式和次乘性，并使用凸性权重$\sum_i\omega_i=1$，产生界\eqref{eq:jacobian_bound}。
+
+\begin{thebibliography}{99}
+\bibitem{brunton2016}
+S. L. Brunton, B. W. Brunton, J. N. Kutz, and J. L. Proctor,
+``Koopman invariant subspaces and finite linear representations of nonlinear
+dynamical systems for control,'' \emph{PLOS ONE}, vol. 11, no. 2,
+Art. no. e0150171, 2016.
+
+\bibitem{lusch2018}
+B. Lusch, J. N. Kutz, and S. L. Brunton, ``Deep learning for universal
+linear embeddings of nonlinear dynamics,'' \emph{Nat. Commun.}, vol. 9,
+Art. no. 4950, 2018.
+
+\bibitem{takagi1985}
+T. Takagi and M. Sugeno, ``Fuzzy identification of systems and its
+applications to modeling and control,'' \emph{IEEE Trans. Syst., Man,
+Cybern.}, vol. SMC-15, no. 1, pp. 116--132, 1985.
+
+\bibitem{tanaka2001}
+K. Tanaka and H. O. Wang, \emph{Fuzzy Control Systems Design and Analysis:
+A Linear Matrix Inequality Approach}. New York, NY, USA: Wiley, 2001.
+
+\bibitem{lam2018}
+H. K. Lam, ``A review on stability analysis of continuous-time
+fuzzy-model-based control systems: From membership-function-independent to
+membership-function-dependent analysis,'' \emph{Eng. Appl. Artif. Intell.},
+vol. 67, pp. 390--408, 2018.
+
+\bibitem{hu2026}
+J. Hu and Y. Chen, ``Fuzzy deep Koopman predictive control for flexible
+operation of subcritical coal-fired power units,'' \emph{J. Process Control},
+vol. 163, Art. no. 103737, 2026.
+
+\bibitem{nguang2007}
+S. K. Nguang, P. Shi, and S. X. Ding, ``Fault detection for uncertain fuzzy
+systems: An LMI approach,'' \emph{IEEE Trans. Fuzzy Syst.}, vol. 15, no. 6,
+pp. 1251--1262, 2007.
+
+\bibitem{yang2011}
+H. Yang, Y. Xia, and B. Liu, ``Fault detection for T--S fuzzy discrete
+systems in finite-frequency domain,'' \emph{IEEE Trans. Syst., Man, Cybern.
+B}, vol. 41, no. 4, pp. 911--920, 2011.
+
+\bibitem{thumati2014}
+B. T. Thumati, M. A. Feinstein, and J. Sarangapani, ``A model-based fault
+detection and prognostics scheme for Takagi--Sugeno fuzzy systems,''
+\emph{IEEE Trans. Fuzzy Syst.}, vol. 22, no. 4, pp. 736--748, 2014.
+
+\bibitem{zhao2020}
+D. Zhao, H. K. Lam, Y. Li, S. X. Ding, and S. Liu, ``A novel approach to
+state and unknown input estimation for Takagi--Sugeno fuzzy models with
+applications to fault detection,'' \emph{IEEE Trans. Circuits Syst. I},
+vol. 67, no. 6, pp. 2053--2063, 2020.
+
+\bibitem{ran2022}
+G. Ran, J. Liu, C. Li, H. K. Lam, D. Li, and H. Chen,
+``Fuzzy-model-based asynchronous fault detection for Markov jump systems
+with partially unknown transition probabilities: An adaptive event-triggered
+approach,'' \emph{IEEE Trans. Fuzzy Syst.}, vol. 30, no. 11,
+pp. 4679--4692, 2022.
+
+\bibitem{bakhtiaridoust2023}
+M. Bakhtiaridoust, M. Yadegar, and N. Meskin, ``Data-driven fault detection
+and isolation of nonlinear systems using deep learning for Koopman operator,''
+\emph{ISA Trans.}, vol. 134, pp. 200--211, 2023.
+
+\bibitem{irani2024}
+F. N. Irani, M. Yadegar, and N. Meskin, ``Koopman-based deep iISS bilinear
+parity approach for data-driven fault diagnosis: Experimental demonstration
+using three-tank system,'' \emph{Control Eng. Pract.}, vol. 142,
+Art. no. 105744, 2024.
+
+\bibitem{vovk2005}
+V. Vovk, A. Gammerman, and G. Shafer,
+\emph{Algorithmic Learning in a Random World}. New York, NY, USA: Springer,
+2005.
+
+\bibitem{xu2021}
+C. Xu and Y. Xie, ``Conformal prediction interval for dynamic time-series,''
+in \emph{Proc. ICML}, 2021, pp. 11559--11569.
+\end{thebibliography}
+
+\end{document}

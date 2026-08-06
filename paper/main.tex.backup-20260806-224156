@@ -166,7 +166,7 @@ identifying the coordinate space.
 Consider a closed-loop nonlinear system in which the controller issues a
 command $\bm u_k\in\mathbb R^{m_u}$ at each sample $k$. The actuator output
 $\bm u_k^{\rm a}\in\mathbb R^{m_u}$ actually applied to the controlled process
-is not measured online, and may differ from the command because of actuator-side
+need not be measured, and may differ from the command because of actuator-side
 deviations. The fault-inclusive controlled process is described by
 \begin{equation}
 \begin{aligned}
@@ -208,7 +208,15 @@ The learning regime is deliberately restricted. Only normal trajectories are
 used for model training and threshold calibration; no physical fault matrix,
 fault direction, fault derivative, fault time model, or labeled fault
 trajectory is employed. All model parameters and calibration quantities are
-frozen during testing.
+frozen during testing. To enforce strict causality, the history available at
+sample $k$ excludes the current output and is defined as
+\begin{equation}
+\mathcal H_k^-=
+\left\{\bm u_{k-\ell_h:k-1},\,
+\bm y_{k-\ell_h:k-1}\right\},
+\label{eq:history}
+\end{equation}
+where $\ell_h$ is the history length.
 
 \subsection{Finite-History Lifted Representation}
 The information boundary defined above prohibits access to the physical state
@@ -262,15 +270,7 @@ provides sufficient evidence.
 \subsection{Attention--Koopman--T--S Normal Model}
 The normal-operation model is built from three components that share a common
 information discipline: every learned mapping accesses only the strictly past
-history and the recorded command $\bm u_k$. To enforce strict causality, the
-history available at sample $k$ excludes the current output and is defined as
-\begin{equation}
-\mathcal H_k^-=
-\left\{\bm u_{k-\ell_h:k-1},\,
-\bm y_{k-\ell_h:k-1}\right\},
-\label{eq:history}
-\end{equation}
-where $\ell_h$ is the history length.
+history \eqref{eq:history} and the recorded command $\bm u_k$.
 
 Each element of the history is first embedded as a token $\bm h_j$. For
 attention head $q\in\{1,\ldots,m_{\rm hd}\}$, the strictly causal attention
@@ -561,9 +561,9 @@ quantities that isolate distinct sources of model mismatch are introduced:
 \end{aligned}
 \label{eq:innovation_context}
 \end{equation}
-The one-step transition residual $\bm\nu_k$ captures the one-step inconsistency of the encoded
-state with the transition model evaluated at the encoding context; the history
-feature substitution error $\bm\delta_{k\mid s}^{\chi}$ measures the effect of replacing the
+The innovation $\bm\nu_k$ captures the one-step inconsistency of the encoded
+state with the transition model evaluated at the encoding context; the context
+mismatch $\bm\delta_{k\mid s}^{\chi}$ measures the effect of replacing the
 encoding context $\bm\chi_k$ (which benefits from the true measurement
 history) with the rollout context $\bm\chi_{k\mid s}^{\rm roll}$ (which uses
 only self-predicted outputs).
@@ -607,8 +607,8 @@ encoding context $\bm\chi_k$ and at the rollout context
 $\bm\chi_{k\mid s}^{\rm roll}$, both at the encoded state $\bm z_k^{\rm enc}$,
 followed by the integral mean-value identity; the complete derivation is given
 in Appendix~A. The recursion consequently exposes the two sources of
-finite-horizon forcing: the one-step transition residual $\bm\nu_k$
-inherent in the finite-history encoding, and the history feature substitution error
+finite-horizon forcing: the one-step normal-model inconsistency $\bm\nu_k$
+inherent in the finite-history encoding, and the context mismatch
 $\bm\delta_{k\mid s}^{\chi}$ that accumulates with the attention memory length.
 
 \subsection{Fuzzy-Structure-Dependent Normal Propagation}
@@ -635,12 +635,7 @@ respect to the scheduling vector is
 \end{aligned}
 \label{eq:weight_gradient}
 \end{equation}
-Here $\bm\gamma_{i,k}^{\rho}$ (lowercase, with superscript $\rho$) denotes the
-local energy gradient for rule $i$, while $\bm\Gamma_{z,k}$ (uppercase,
-capital gamma, with subscript $z$) will denote the complete Jacobian of the
-interpolated transition with respect to the lifted state; the notational
-distinction reflects their differing roles in the fuzzy structure. The
-difference $\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho}$
+The difference $\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho}$
 quantifies how strongly rule $i$'s local metric gradient deviates from the
 membership-weighted average. This term is small in regions where a single rule
 dominates and becomes significant in transition zones where multiple rules
@@ -1150,91 +1145,34 @@ verified mapping from lifted coordinates to physical components.
 
 \appendices
 \section{Proof of Theorem~\ref{thm:exact}}
-Start from the definition \eqref{eq:start_residual} of the lifted residual:
-\begin{equation*}
-\bm e_{k+1\mid s}^z=\bm z_{k+1}^{\rm enc}-\bm z_{k+1\mid s}^{\rm roll}.
-\end{equation*}
-Add and subtract the transition $\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;
-\bm\chi_k)$ evaluated at the encoding context, and then add and subtract
-$\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})$
-evaluated at the rollout context but at the encoded state:
-\begin{equation*}
-\begin{aligned}
-\bm e_{k+1\mid s}^z={}&
-\bm z_{k+1}^{\rm enc}
--\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k)\\
-&+\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_k)
--\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})\\
-&+\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
--\bm z_{k+1\mid s}^{\rm roll}.
-\end{aligned}
-\end{equation*}
-By the definitions in \eqref{eq:innovation_context}, the first line equals
-$\bm\nu_k$ and the second line equals $\bm\delta_{k\mid s}^{\chi}$.
-The third line can be written as
-\begin{equation*}
-\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
--\mathcal T_\Theta(\bm z_{k\mid s}^{\rm roll},\bm u_k;\bm\chi_{k\mid s}^{\rm roll}),
-\end{equation*}
-where we used the rollout recursion \eqref{eq:free_rollout}. Because
-$\mathcal T_\Theta$ is continuously differentiable in $\bm z$, the integral
-mean-value theorem applies:
-\begin{equation*}
-\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
--\mathcal T_\Theta(\bm z_{k\mid s}^{\rm roll},\bm u_k;\bm\chi_{k\mid s}^{\rm roll})
-=\overline{\bm\Gamma}_{k\mid s}\bm e_{k\mid s}^z,
-\end{equation*}
-with $\overline{\bm\Gamma}_{k\mid s}$ defined in \eqref{eq:averaged_jacobian}.
-Combining these steps proves the one-step recursion \eqref{eq:exact_recursion}.
-Repeated substitution from $k=s$ to $k$ yields the finite-horizon expansion
-\eqref{eq:finite_propagation} with the ordered product $\bm\Phi(k,j)$ as stated.
+Start from \eqref{eq:start_residual} and add and subtract the transition
+$\mathcal T_\Theta(\bm z_k^{\rm enc},\bm u_k;
+\bm\chi_{k\mid s}^{\rm roll})$ evaluated at the rollout context, which
+separates the context difference $\bm\delta_{k\mid s}^{\chi}$ from the
+remaining state difference; the innovation $\bm\nu_k$ is then identified from
+\eqref{eq:innovation_context}. The state difference equals
+\eqref{eq:averaged_jacobian}$\bm e_{k\mid s}^z$ by the integral
+mean-value identity. This proves \eqref{eq:exact_recursion}. Repeated
+substitution gives \eqref{eq:finite_propagation}.
 
 \section{Proof of Theorem~\ref{thm:jacobian}}
-Differentiate the interpolated transition
-$\mathcal T_\Theta(\bm z,\bm u;\bm\chi)=\sum_{i=1}^{m_r}\omega_i(\bm\rho)\bm v_i(\bm z,\bm u)$
-with respect to $\bm z$. By the product rule,
-\begin{equation*}
-\bm\Gamma_{z,k}=\frac{\partial\mathcal T_\Theta}{\partial\bm z}
-=\sum_i\frac{\partial\omega_i}{\partial\bm z}\bm v_i
-+\sum_i\omega_i\frac{\partial\bm v_i}{\partial\bm z}.
-\end{equation*}
-Since $\bm v_i(\bm z,\bm u)=\bm A_i\bm z+\bm B_i\bm u$, we have
-$\partial\bm v_i/\partial\bm z=\bm A_i$.
-The chain rule gives
-$\partial\omega_i/\partial\bm z=(\nabla_{\bm\rho}\omega_i)^\T\partial\bm\rho/\partial\bm z$.
-From the scheduling vector definition \eqref{eq:schedule},
-$\partial\bm\rho/\partial\bm z=\bm W_z$. Hence
-\begin{equation*}
+Differentiate
+$\mathcal T_\Theta=\sum_i\omega_i\bm v_i$. Since
+$\partial\bm v_i/\partial\bm z=\bm A_i$ and
+$\partial\bm\rho/\partial\bm z=\bm W_z$,
+\begin{equation}
 \bm\Gamma_{z,k}=\sum_i\omega_{i,k}\bm A_i+
 \sum_i\bm v_{i,k}
 (\nabla_{\bm\rho}\omega_{i,k})^\T\bm W_z.
-\end{equation*}
-Substituting \eqref{eq:weight_gradient} into the second term:
-\begin{equation*}
-\sum_i\bm v_{i,k}
-(\nabla_{\bm\rho}\omega_{i,k})^\T\bm W_z
-=\sum_i\omega_{i,k}\bm v_{i,k}
-(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z.
-\end{equation*}
-Because $\sum_i\omega_i=1$, the identity
-$\sum_i\omega_i(\bm\gamma_i^{\rho}-\overline{\bm\gamma}^{\rho})=\bm 0$ holds.
-Consequently, we may replace $\bm v_{i,k}$ by
-$\bm v_{i,k}-\overline{\bm v}_k$ without changing the sum:
-\begin{equation*}
-\sum_i\omega_{i,k}(\bm v_{i,k}-\overline{\bm v}_k)
-(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z
-=\sum_i\omega_{i,k}\bm v_{i,k}
-(\bm\gamma_{i,k}^{\rho}-\overline{\bm\gamma}_k^{\rho})^\T\bm W_z.
-\end{equation*}
-This proves the decomposition \eqref{eq:complete_jacobian}.
-
-For the infinity-norm bound, note that for vectors $\bm a\in\mathbb R^{m_z}$ and
-$\bm b\in\mathbb R^{m_\rho}$, the induced infinity norm of the rank-one matrix
-$\bm a\bm b^\T$ satisfies
+\end{equation}
+Substitution of \eqref{eq:weight_gradient}, together with
+$\sum_i\omega_i(\nabla\varphi_i-\sum_j\omega_j\nabla\varphi_j)=0$,
+permits replacing $\bm v_{i,k}$ by
+$\bm v_{i,k}-\overline{\bm v}_k$, which yields
+\eqref{eq:complete_jacobian}. For vectors $\bm a$ and $\bm b$,
 $\norm{\bm a\bm b^\T}_\infty=\norm{\bm a}_\infty\norm{\bm b}_1$.
-Applying the triangle inequality and submultiplicativity to
-\eqref{eq:complete_jacobian}, and using the convexity weights $\sum_i\omega_i=1$,
-yields the bound \eqref{eq:jacobian_bound}.
+The triangle inequality and submultiplicativity then give
+\eqref{eq:jacobian_bound}.
 
 \begin{thebibliography}{99}
 \bibitem{brunton2016}
